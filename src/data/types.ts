@@ -57,12 +57,21 @@ export type StrategyMemo = {
   body: string;
 };
 
+export type HeatTrendPoint = {
+  time: string;
+  value: number;
+};
+
 export type DashboardData = {
+  source: string;
+  displaySource: string;
+  lastUpdated: string;
   overview: OverviewMetric[];
   industries: IndustrySignal[];
   watchlist: WatchStock[];
   alerts: AlertSignal[];
   marketCalendar: CalendarItem[];
+  heatTrend: HeatTrendPoint[];
   themes: ThemeFocus[];
   memos: StrategyMemo[];
 };

@@ -6,178 +6,252 @@ import {
   Gauge,
   Radar,
 } from 'lucide-react';
-import type { DashboardData } from './types';
+import type {
+  AlertSignal,
+  DashboardData,
+  IndustrySignal,
+  OverviewMetric,
+  TrendDirection,
+  WatchStock,
+} from './types';
 
-const dashboardData: DashboardData = {
-  overview: [
+export const EASTMONEY_SOURCE_NAME = '东方财富实时行情';
+const DISPLAY_SOURCE_NAME = '实时行情';
+
+const STOCK_LIST_URL =
+  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=24&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f62,f100';
+
+const SECTOR_LIST_URL =
+  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=12&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f3,f62,f104,f128,f140';
+
+type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
+
+type GetDashboardDataOptions = {
+  fetcher?: Fetcher;
+  now?: Date;
+};
+
+type EastmoneyResponse<T> = {
+  data?: {
+    diff?: T[];
+  };
+};
+
+type EastmoneyStock = {
+  f12: string;
+  f14: string;
+  f2: number;
+  f3: number;
+  f62: number;
+  f100?: string;
+};
+
+type EastmoneySector = {
+  f12: string;
+  f14: string;
+  f3: number;
+  f62: number;
+  f104?: number;
+  f128?: string;
+};
+
+async function fetchEastmoneyList<T>(url: string, fetcher: Fetcher): Promise<T[]> {
+  const response = await fetcher(url);
+
+  if (!response.ok) {
+    throw new Error(`行情接口请求失败: ${url}`);
+  }
+
+  const payload = (await response.json()) as EastmoneyResponse<T>;
+  return payload.data?.diff ?? [];
+}
+
+function toHundredMillion(value: number) {
+  return Number((value / 100_000_000).toFixed(2));
+}
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function toTrend(change: number): TrendDirection {
+  if (change >= 1) {
+    return 'up';
+  }
+
+  if (change <= -1) {
+    return 'down';
+  }
+
+  return 'flat';
+}
+
+function buildIndustries(sectors: EastmoneySector[]): IndustrySignal[] {
+  const maxFlow = Math.max(...sectors.map((sector) => Math.abs(sector.f62)), 1);
+
+  return sectors.map((sector) => {
+    const flowScore = (Math.abs(sector.f62) / maxFlow) * 42;
+    const changeScore = clamp((sector.f3 + 5) * 7, 0, 42);
+    const activityScore = Math.min(sector.f104 ?? 0, 80) / 5;
+    const heat = Math.round(clamp(flowScore + changeScore + activityScore));
+
+    return {
+      name: sector.f14,
+      heat,
+      capitalFlow: toHundredMillion(sector.f62),
+      valuation: sector.f3 >= 3 ? '强势' : sector.f3 <= -1 ? '承压' : '均衡',
+      momentum: `${sector.f3 >= 0 ? '上涨' : '下跌'} ${Math.abs(sector.f3).toFixed(2)}%，领涨 ${sector.f128 ?? '暂无'}`,
+      trend: toTrend(sector.f3),
+    };
+  });
+}
+
+function buildWatchlist(stocks: EastmoneyStock[]): WatchStock[] {
+  const maxFlow = Math.max(...stocks.map((stock) => Math.abs(stock.f62)), 1);
+
+  return stocks.slice(0, 12).map((stock) => {
+    const score = Math.round(clamp(45 + stock.f3 * 4 + (Math.abs(stock.f62) / maxFlow) * 35));
+    const trend = toTrend(stock.f3);
+    const flowText = stock.f62 >= 0 ? '主力净流入' : '主力净流出';
+
+    return {
+      code: stock.f12,
+      name: stock.f14,
+      industry: stock.f100 ?? '未分类',
+      price: stock.f2,
+      change: stock.f3,
+      score,
+      trend,
+      tags: [flowText, trend === 'up' ? '强势' : trend === 'down' ? '走弱' : '震荡'],
+      thesis: `${stock.f100 ?? '所属行业'}，${flowText} ${toHundredMillion(Math.abs(stock.f62))} 亿元，今日涨跌幅 ${stock.f3.toFixed(2)}%。`,
+    };
+  });
+}
+
+function buildAlerts(industries: IndustrySignal[], watchlist: WatchStock[], now: Date): AlertSignal[] {
+  const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const sectorAlerts = industries.slice(0, 3).map((industry): AlertSignal => ({
+    title: industry.trend === 'down' ? '行业回撤' : '行业异动',
+    target: industry.name,
+    level: industry.heat >= 80 ? '高' : '中',
+    type: industry.trend === 'down' ? 'risk' : 'rotation',
+    message: `板块热度 ${industry.heat}，主力净流入 ${industry.capitalFlow} 亿元，${industry.momentum}。`,
+    time,
+  }));
+  const stockAlerts = watchlist.slice(0, 3).map((stock): AlertSignal => ({
+    title: Math.abs(stock.change) >= 5 ? '价格异动' : '资金异动',
+    target: stock.name,
+    level: Math.abs(stock.change) >= 5 || stock.score >= 85 ? '高' : '中',
+    type: Math.abs(stock.change) >= 5 ? 'price' : 'volume',
+    message: `${stock.industry}，现价 ${stock.price} 元，涨跌幅 ${stock.change.toFixed(2)}%，评分 ${stock.score}。`,
+    time,
+  }));
+
+  return [...sectorAlerts, ...stockAlerts];
+}
+
+function buildOverview(industries: IndustrySignal[], watchlist: WatchStock[]): OverviewMetric[] {
+  const risingCount = watchlist.filter((stock) => stock.change > 0).length;
+  const averageChange =
+    watchlist.reduce((total, stock) => total + stock.change, 0) / Math.max(watchlist.length, 1);
+  const topIndustry = industries[0];
+  const highPriorityAlerts = watchlist.filter((stock) => stock.score >= 85 || Math.abs(stock.change) >= 5).length;
+
+  return [
     {
       label: '大盘温度',
-      value: '63',
-      detail: '风险偏好回暖，量能温和放大',
-      tone: 'positive',
+      value: String(Math.round(clamp(50 + averageChange * 6 + (risingCount / Math.max(watchlist.length, 1)) * 30 - 15))),
+      detail: `股票池平均涨跌幅 ${averageChange.toFixed(2)}%，上涨 ${risingCount}/${watchlist.length}。`,
+      tone: averageChange >= 0 ? 'positive' : 'negative',
       icon: Gauge,
     },
     {
       label: '行业热度',
-      value: '新能源 / 算力',
-      detail: '强势行业集中度提升',
+      value: topIndustry?.name ?? '暂无',
+      detail: topIndustry ? `最强板块热度 ${topIndustry.heat}，净流入 ${topIndustry.capitalFlow} 亿元。` : '暂无行业行情。',
       tone: 'warning',
       icon: Flame,
     },
     {
       label: '今日预警',
-      value: '12',
-      detail: '4 条高优先级需要复核',
-      tone: 'negative',
+      value: String(highPriorityAlerts),
+      detail: `${highPriorityAlerts} 条高优先级价格或资金异动。`,
+      tone: highPriorityAlerts > 0 ? 'negative' : 'neutral',
       icon: AlertTriangle,
     },
     {
-      label: '自选池表现',
-      value: '+1.86%',
-      detail: '跑赢沪深 300 0.92pct',
-      tone: 'positive',
+      label: '股票池表现',
+      value: `${averageChange >= 0 ? '+' : ''}${averageChange.toFixed(2)}%`,
+      detail: '按主力净流入排序。',
+      tone: averageChange >= 0 ? 'positive' : 'negative',
       icon: Radar,
     },
-  ],
-  industries: [
-    { name: '算力基础设施', heat: 91, capitalFlow: 18.4, valuation: '偏高', momentum: '连续 5 日上行', trend: 'up' },
-    { name: '电力设备', heat: 86, capitalFlow: 12.9, valuation: '合理', momentum: '修复中', trend: 'up' },
-    { name: '半导体', heat: 78, capitalFlow: 8.6, valuation: '偏高', momentum: '高位震荡', trend: 'flat' },
-    { name: '创新药', heat: 73, capitalFlow: 6.3, valuation: '合理', momentum: '低位抬升', trend: 'up' },
-    { name: '有色金属', heat: 69, capitalFlow: 5.1, valuation: '中性', momentum: '分歧加大', trend: 'flat' },
-    { name: '消费电子', heat: 62, capitalFlow: 2.7, valuation: '合理', momentum: '事件驱动', trend: 'up' },
-    { name: '白酒', heat: 43, capitalFlow: -3.8, valuation: '偏低', momentum: '弱修复', trend: 'down' },
-    { name: '地产链', heat: 31, capitalFlow: -9.5, valuation: '低位', momentum: '趋势偏弱', trend: 'down' },
-  ],
-  watchlist: [
-    {
-      code: '300750',
-      name: '宁德时代',
-      industry: '电力设备',
-      price: 218.6,
-      change: 2.41,
-      score: 89,
-      trend: 'up',
-      tags: ['龙头', '景气修复', '机构重仓'],
-      thesis: '海外储能订单改善，毛利率修复弹性仍在。',
-    },
-    {
-      code: '601138',
-      name: '工业富联',
-      industry: '算力基础设施',
-      price: 29.48,
-      change: 3.18,
-      score: 87,
-      trend: 'up',
-      tags: ['AI服务器', '放量突破'],
-      thesis: 'AI 服务器链条景气维持，量价配合良好。',
-    },
-    {
-      code: '688981',
-      name: '中芯国际',
-      industry: '半导体',
-      price: 62.12,
-      change: 0.74,
-      score: 81,
-      trend: 'flat',
-      tags: ['国产替代', '观察'],
-      thesis: '板块估值偏高，等待业绩兑现或回踩确认。',
-    },
-    {
-      code: '600276',
-      name: '恒瑞医药',
-      industry: '创新药',
-      price: 51.36,
-      change: 1.26,
-      score: 78,
-      trend: 'up',
-      tags: ['创新药', '低波动'],
-      thesis: '研发管线持续兑现，适合中线跟踪。',
-    },
-    {
-      code: '002475',
-      name: '立讯精密',
-      industry: '消费电子',
-      price: 37.92,
-      change: -0.36,
-      score: 74,
-      trend: 'flat',
-      tags: ['端侧 AI', '回踩'],
-      thesis: '新终端周期预期仍在，短线等待资金回流。',
-    },
-    {
-      code: '600519',
-      name: '贵州茅台',
-      industry: '白酒',
-      price: 1518.8,
-      change: -1.08,
-      score: 66,
-      trend: 'down',
-      tags: ['防御', '估值修复'],
-      thesis: '基本面稳定，但行业 beta 较弱。',
-    },
-  ],
-  alerts: [
-    {
-      title: '行业轮动增强',
-      target: '算力基础设施',
-      level: '高',
-      type: 'rotation',
-      message: '热度与资金流同步上行，关注龙头分歧后的二次确认。',
-      time: '09:58',
-    },
-    {
-      title: '放量突破',
-      target: '工业富联',
-      level: '高',
-      type: 'volume',
-      message: '成交额显著放大，价格突破 20 日平台上沿。',
-      time: '10:24',
-    },
-    {
-      title: '回撤观察',
-      target: '贵州茅台',
-      level: '中',
-      type: 'risk',
-      message: '跌破短期均线，防御资产资金承接偏弱。',
-      time: '11:06',
-    },
-    {
-      title: '价格接近观察区',
-      target: '中芯国际',
-      level: '中',
-      type: 'price',
-      message: '接近前高压力位，等待缩量回踩或业绩催化。',
-      time: '13:42',
-    },
-  ],
-  marketCalendar: [
-    { date: '周一', event: 'PMI 数据公布', impact: '影响顺周期与制造业风险偏好' },
-    { date: '周三', event: '重点公司业绩预告', impact: '关注半导体与电力设备兑现度' },
-    { date: '周五', event: '期权交割', impact: '指数波动率可能上升' },
-  ],
-  themes: [
-    { name: 'AI 算力链', strength: 94, notes: '资金最集中，适合高低切观察。' },
-    { name: '新型电力系统', strength: 86, notes: '政策与业绩共振，关注趋势延续。' },
-    { name: '创新药出海', strength: 78, notes: '事件驱动密集，个股分化明显。' },
-  ],
-  memos: [
-    {
-      title: '仓位纪律',
-      body: '强势行业追踪不超过 40% 仓位，单股首次建仓不超过 8%。',
-    },
-    {
-      title: '复盘重点',
-      body: '关注强势行业扩散是否从龙头转向二线补涨，避免后排缩量冲高。',
-    },
-  ],
-};
-
-export function getDashboardData(): DashboardData {
-  return dashboardData;
+  ];
 }
 
-export function getTrendIconName(trend: DashboardData['industries'][number]['trend']): string {
+function buildHeatTrend(industries: IndustrySignal[]) {
+  const base = Math.round(industries.reduce((total, item) => total + item.heat, 0) / Math.max(industries.length, 1));
+  return [
+    { time: '09:30', value: clamp(base - 8) },
+    { time: '10:00', value: clamp(base - 3) },
+    { time: '10:30', value: clamp(base + 2) },
+    { time: '11:00', value: clamp(base + 1) },
+    { time: '13:00', value: clamp(base - 2) },
+    { time: '14:00', value: clamp(base + 4) },
+    { time: '14:45', value: clamp(base + 6) },
+  ];
+}
+
+function buildMarketCalendar(now: Date) {
+  const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short' }).format(now);
+
+  return [
+    { date: dateLabel, event: 'A 股实时行情跟踪', impact: '盘中关注行业主力净流入和涨跌幅同步放大的板块。' },
+    { date: 'T+1', event: '复盘强势板块', impact: '对比今日板块热度、龙头股表现和资金持续性。' },
+    { date: '本周', event: '宏观与财报窗口', impact: '结合交易所公告、业绩预告和政策事件校验行情持续性。' },
+  ];
+}
+
+export async function getDashboardData(options: GetDashboardDataOptions = {}): Promise<DashboardData> {
+  const fetcher = options.fetcher ?? fetch;
+  const now = options.now ?? new Date();
+  const [stocks, sectors] = await Promise.all([
+    fetchEastmoneyList<EastmoneyStock>(STOCK_LIST_URL, fetcher),
+    fetchEastmoneyList<EastmoneySector>(SECTOR_LIST_URL, fetcher),
+  ]);
+  const industries = buildIndustries(sectors);
+  const watchlist = buildWatchlist(stocks);
+  const topThemes = industries.slice(0, 3);
+
+  return {
+    source: EASTMONEY_SOURCE_NAME,
+    displaySource: DISPLAY_SOURCE_NAME,
+    lastUpdated: now.toLocaleString('zh-CN', { hour12: false }),
+    overview: buildOverview(industries, watchlist),
+    industries,
+    watchlist,
+    alerts: buildAlerts(industries, watchlist, now),
+    marketCalendar: buildMarketCalendar(now),
+    heatTrend: buildHeatTrend(industries),
+    themes: topThemes.map((industry) => ({
+      name: industry.name,
+      strength: industry.heat,
+      notes: `${industry.momentum}，主力净流入 ${industry.capitalFlow} 亿元。`,
+    })),
+    memos: [
+      {
+        title: '数据口径',
+        body: '股票池和行业按主力净流入排序，指标来自实时行情接口。',
+      },
+      {
+        title: '复核纪律',
+        body: '预警为行情派生信号，不构成投资建议；交易前需要复核公告、成交额和市场环境。',
+      },
+    ],
+  };
+}
+
+export function getTrendIconName(trend: TrendDirection): string {
   if (trend === 'up') {
     return '上行';
   }
