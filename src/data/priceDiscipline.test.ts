@@ -9,6 +9,7 @@ import {
   getSecid,
   parseSecurityInput,
   resolveSecurityQuery,
+  searchSecuritySuggestions,
   parseManualLevels,
 } from './priceDiscipline';
 
@@ -81,6 +82,34 @@ describe('priceDiscipline', () => {
       code: '603929',
       name: '亚翔集成',
     });
+  });
+
+  it('returns multiple security suggestions for partial input', async () => {
+    const fetcher = async () => ({
+      ok: true,
+      json: async () => ({
+        QuotationCodeTable: {
+          Data: [
+            { Code: '603929', Name: '亚翔集成', QuoteID: '1.603929' },
+            { Code: '000001', Name: '平安银行', QuoteID: '0.000001' },
+            { Code: 'BAD', Name: '无效项' },
+          ],
+        },
+      }),
+    });
+
+    await expect(searchSecuritySuggestions('亚', fetcher)).resolves.toEqual([
+      { code: '603929', name: '亚翔集成' },
+      { code: '000001', name: '平安银行' },
+    ]);
+  });
+
+  it('does not search for blank security suggestions', async () => {
+    const fetcher = async () => {
+      throw new Error('search should not run for blank input');
+    };
+
+    await expect(searchSecuritySuggestions(' ', fetcher)).resolves.toEqual([]);
   });
 
   it('uses the parsed code immediately when security input already contains a code', async () => {

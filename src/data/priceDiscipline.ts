@@ -57,6 +57,11 @@ type EastmoneySuggestResponse = {
   };
 };
 
+export type SecuritySuggestion = {
+  code: string;
+  name: string;
+};
+
 export const KLINE_PERIODS: Array<{ value: KlinePeriod; label: string; klt: string; limit: number }> = [
   { value: '15m', label: '15分钟', klt: '15', limit: 160 },
   { value: '60m', label: '60分钟', klt: '60', limit: 160 },
@@ -93,29 +98,80 @@ export async function resolveSecurityQuery(input: string, fetcher: Fetcher = fet
     return parsed;
   }
 
+  const [match] = await searchSecuritySuggestions(parsed.name, fetcher);
+
+  if (!match) {
+    throw new Error('未找到匹配的股票或ETF代码');
+  }
+
+  return match;
+}
+
+export async function searchSecuritySuggestions(input: string, fetcher: Fetcher = fetch): Promise<SecuritySuggestion[]> {
+  const query = input.trim();
+
+  if (!query) {
+    return [];
+  }
+
   const url = new URL('https://searchapi.eastmoney.com/api/suggest/get');
-  url.searchParams.set('input', parsed.name);
+  url.searchParams.set('input', query);
   url.searchParams.set('type', '14');
   url.searchParams.set('token', 'D43BF722C8E33A6');
   url.searchParams.set('count', '5');
 
-  const response = await fetcher(url.toString());
+  const payload = await fetchSuggestPayload(url, fetcher);
+  return (payload.QuotationCodeTable?.Data ?? [])
+    .filter((item): item is { Code: string; Name?: string } => Boolean(item.Code && /^\d{6}$/.test(item.Code)))
+    .map((item) => ({ code: item.Code, name: item.Name || query }));
+}
 
-  if (!response.ok) {
-    throw new Error('股票名称搜索失败');
+async function fetchSuggestPayload(url: URL, fetcher: Fetcher): Promise<EastmoneySuggestResponse> {
+  try {
+    const response = await fetcher(url.toString());
+
+    if (!response.ok) {
+      throw new Error('股票名称搜索失败');
+    }
+
+    return (await response.json()) as EastmoneySuggestResponse;
+  } catch (error) {
+    if (fetcher !== fetch || typeof window === 'undefined' || typeof document === 'undefined') {
+      throw error;
+    }
+
+    return fetchSuggestJsonp(url);
   }
+}
 
-  const payload = (await response.json()) as EastmoneySuggestResponse;
-  const match = payload.QuotationCodeTable?.Data?.find((item) => item.Code && /^\d{6}$/.test(item.Code));
+function fetchSuggestJsonp(url: URL): Promise<EastmoneySuggestResponse> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__alphaDeskSuggest${Date.now()}${Math.round(Math.random() * 10000)}`;
+    const script = document.createElement('script');
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('股票名称搜索超时'));
+    }, 8000);
 
-  if (!match?.Code) {
-    throw new Error('未找到匹配的股票或ETF代码');
-  }
+    function cleanup() {
+      window.clearTimeout(timeout);
+      script.remove();
+      delete (window as unknown as Record<string, unknown>)[callbackName];
+    }
 
-  return {
-    code: match.Code,
-    name: match.Name || parsed.name,
-  };
+    (window as unknown as Record<string, (payload: EastmoneySuggestResponse) => void>)[callbackName] = (payload) => {
+      cleanup();
+      resolve(payload);
+    };
+
+    url.searchParams.set('cb', callbackName);
+    script.src = url.toString();
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('股票名称搜索失败'));
+    };
+    document.body.appendChild(script);
+  });
 }
 
 export function parseManualLevels(input: string): number[] {

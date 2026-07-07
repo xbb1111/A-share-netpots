@@ -50,9 +50,10 @@ import {
   parseManualLevels,
   resolveSecurityQuery,
   roundPrice,
+  searchSecuritySuggestions,
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
-import type { KlineData, KlinePeriod, PriceLevelType } from './data/priceDiscipline';
+import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
 
@@ -514,6 +515,8 @@ function PriceDisciplinePanel() {
   const [klineError, setKlineError] = useState<string | null>(null);
   const [hoverPoint, setHoverPoint] = useState<ChartHoverPoint | null>(null);
   const [highlightedLevelId, setHighlightedLevelId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const buyPrice = Number(config.buyPrice);
   const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
@@ -645,8 +648,58 @@ function PriceDisciplinePanel() {
     };
   }, [config.activeCode, config.period]);
 
+  useEffect(() => {
+    const query = config.codeInput.trim();
+    let isStale = false;
+
+    if (query.length < 1) {
+      setSuggestions([]);
+      return;
+    }
+
+    if (config.activeCode && query === `${config.activeName} ${config.activeCode}`.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsLoadingSuggestions(true);
+
+      searchSecuritySuggestions(query)
+        .then((items) => {
+          if (!isStale) {
+            setSuggestions(items);
+          }
+        })
+        .catch(() => {
+          if (!isStale) {
+            setSuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (!isStale) {
+            setIsLoadingSuggestions(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      isStale = true;
+      window.clearTimeout(timer);
+    };
+  }, [config.codeInput]);
+
   function updateConfig(patch: Partial<PriceToolConfig>) {
     setConfig((current) => ({ ...current, ...patch }));
+  }
+
+  function applySecuritySuggestion(suggestion: SecuritySuggestion) {
+    updateConfig({
+      codeInput: suggestion.name ? `${suggestion.name} ${suggestion.code}` : suggestion.code,
+      activeCode: suggestion.code,
+      activeName: suggestion.name,
+    });
+    setSuggestions([]);
   }
 
   async function refreshActiveCode() {
@@ -739,6 +792,17 @@ function PriceDisciplinePanel() {
               刷新
             </button>
           </div>
+          {isLoadingSuggestions || suggestions.length > 0 ? (
+            <div className="security-suggestions">
+              {isLoadingSuggestions ? <span className="security-suggestions__state">搜索中</span> : null}
+              {suggestions.map((suggestion) => (
+                <button key={suggestion.code} type="button" onClick={() => applySecuritySuggestion(suggestion)}>
+                  <strong>{suggestion.name}</strong>
+                  <span>{suggestion.code}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </label>
 
         <label>

@@ -802,6 +802,53 @@ h2 {
   opacity: 0.66;
 }
 
+.security-suggestions {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(94, 182, 201, 0.2);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.72);
+}
+
+.security-suggestions button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 6px;
+  background: rgba(16, 24, 32, 0.74);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.security-suggestions button:hover {
+  border-color: rgba(214, 170, 92, 0.32);
+  background: rgba(214, 170, 92, 0.08);
+}
+
+.security-suggestions strong {
+  overflow: hidden;
+  color: #eef5f9;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-suggestions span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.security-suggestions__state {
+  padding: 4px 2px;
+}
+
 .price-tool__layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
