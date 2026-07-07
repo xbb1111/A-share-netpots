@@ -1,4 +1,4 @@
-export type KlinePeriod = '15m' | '60m' | 'daily' | 'weekly';
+export type KlinePeriod = '15m' | '30m' | '60m' | 'daily' | 'weekly';
 
 export type PriceBar = {
   time: string;
@@ -64,6 +64,7 @@ export type SecuritySuggestion = {
 
 export const KLINE_PERIODS: Array<{ value: KlinePeriod; label: string; klt: string; limit: number }> = [
   { value: '15m', label: '15分钟', klt: '15', limit: 160 },
+  { value: '30m', label: '30分钟', klt: '30', limit: 160 },
   { value: '60m', label: '60分钟', klt: '60', limit: 160 },
   { value: 'daily', label: '日K', klt: '101', limit: 180 },
   { value: 'weekly', label: '周K', klt: '102', limit: 120 },
@@ -291,15 +292,43 @@ export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all'): 
 }
 
 export function calculateZoomWindow(
-  currentWindow: 30 | 60 | 120 | 'all',
+  currentWindow: number | 'all',
   totalBars: number,
   direction: 'in' | 'out',
-): 30 | 60 | 120 | 'all' {
-  const steps: Array<30 | 60 | 120 | 'all'> = totalBars <= 60 ? [30, 60, 'all'] : [30, 60, 120, 'all'];
-  const currentIndex = Math.max(0, steps.indexOf(currentWindow));
-  const nextIndex = direction === 'in' ? Math.max(0, currentIndex - 1) : Math.min(steps.length - 1, currentIndex + 1);
+): number | 'all' {
+  const safeTotal = Math.max(Math.round(totalBars), 0);
 
-  return steps[nextIndex] ?? currentWindow;
+  if (safeTotal <= 0) {
+    return currentWindow;
+  }
+
+  const minimumWindow = Math.min(12, safeTotal);
+  const currentSize = currentWindow === 'all' ? safeTotal : Math.min(Math.max(Math.round(currentWindow), minimumWindow), safeTotal);
+  const nextSize = direction === 'in' ? Math.round(currentSize * 0.82) : Math.round(currentSize * 1.22);
+  const clampedSize = Math.min(Math.max(nextSize, minimumWindow), safeTotal);
+
+  if (direction === 'out' && clampedSize >= safeTotal * 0.92) {
+    return 'all';
+  }
+
+  return clampedSize >= safeTotal ? 'all' : clampedSize;
+}
+
+export function calculatePriceDomain(bars: PriceBar[], referencePrices: number[] = []): [number, number] {
+  const prices = [...bars.flatMap((bar) => [bar.low, bar.high]), ...referencePrices].filter(
+    (price) => Number.isFinite(price) && price > 0,
+  );
+
+  if (prices.length === 0) {
+    return [0, 1];
+  }
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = Math.max(max - min, max * 0.02, 1);
+  const padding = range * 0.08;
+
+  return [roundPrice(Math.max(0, min - padding)), roundPrice(max + padding)];
 }
 
 export function roundPrice(price: number): number {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type WheelEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -41,6 +41,7 @@ import { SectionHeader } from './components/SectionHeader';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
+  calculatePriceDomain,
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
@@ -69,7 +70,7 @@ type PriceToolConfig = {
   activeName: string;
   period: KlinePeriod;
   chartType: 'line' | 'area' | 'candlestick';
-  chartWindow: 30 | 60 | 120 | 'all';
+  chartWindow: number | 'all';
   buyPrice: string;
   manualLevels: string;
   isCollapsed: boolean;
@@ -459,6 +460,7 @@ function renderCommonChartChrome(
   referenceRows: PriceTableRow[],
   highlightedLevelId: string | null,
   hoverPoint: ChartHoverPoint | null,
+  priceDomain: [number, number],
 ) {
   return (
     <>
@@ -471,7 +473,7 @@ function renderCommonChartChrome(
         tickLine={false}
       />
       <YAxis
-        domain={['dataMin - 2', 'dataMax + 2']}
+        domain={priceDomain}
         tick={{ fill: '#7c8a96', fontSize: 11 }}
         axisLine={false}
         tickLine={false}
@@ -509,6 +511,7 @@ function renderCommonChartChrome(
 }
 
 function PriceDisciplinePanel() {
+  const chartShellRef = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<PriceToolConfig>(getInitialPriceToolConfig);
   const [klineData, setKlineData] = useState<KlineData | null>(null);
   const [isLoadingKline, setIsLoadingKline] = useState(false);
@@ -606,6 +609,10 @@ function PriceDisciplinePanel() {
 
     return true;
   }));
+  const chartPriceDomain = useMemo(
+    () => calculatePriceDomain(chartRows, referenceRows.map((row) => row.price)),
+    [chartRows, referenceRows],
+  );
 
   useEffect(() => {
     window.localStorage.setItem(PRICE_TOOL_STORAGE_KEY, JSON.stringify(config));
@@ -693,6 +700,16 @@ function PriceDisciplinePanel() {
     setConfig((current) => ({ ...current, ...patch }));
   }
 
+  function applyChartZoom(deltaY: number) {
+    updateConfig({
+      chartWindow: calculateZoomWindow(
+        config.chartWindow,
+        klineData?.bars.length ?? chartRows.length,
+        deltaY < 0 ? 'in' : 'out',
+      ),
+    });
+  }
+
   function applySecuritySuggestion(suggestion: SecuritySuggestion) {
     updateConfig({
       codeInput: suggestion.name ? `${suggestion.name} ${suggestion.code}` : suggestion.code,
@@ -726,18 +743,6 @@ function PriceDisciplinePanel() {
     }
   }
 
-  function handleChartWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-
-    updateConfig({
-      chartWindow: calculateZoomWindow(
-        config.chartWindow,
-        klineData?.bars.length ?? chartRows.length,
-        event.deltaY < 0 ? 'in' : 'out',
-      ),
-    });
-  }
-
   function handleChartMouseMove(state: unknown) {
     const payload = state as {
       activeLabel?: string;
@@ -752,6 +757,26 @@ function PriceDisciplinePanel() {
 
     setHoverPoint({ time: point.time ?? payload.activeLabel, close: point.close });
   }
+
+  useEffect(() => {
+    const chartShell = chartShellRef.current;
+
+    if (!chartShell) {
+      return undefined;
+    }
+
+    function handleNativeWheel(event: globalThis.WheelEvent) {
+      event.preventDefault();
+      event.stopPropagation();
+      applyChartZoom(event.deltaY);
+    }
+
+    chartShell.addEventListener('wheel', handleNativeWheel, { passive: false });
+
+    return () => {
+      chartShell.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [config.chartWindow, klineData?.bars.length, chartRows.length]);
 
   const headerTitle = config.isCollapsed
     ? `价格纪律${config.activeCode ? ` · ${config.activeName || config.activeCode}` : ''}`
@@ -847,6 +872,9 @@ function PriceDisciplinePanel() {
               updateConfig({ chartWindow: value === 'all' ? 'all' : (Number(value) as PriceToolConfig['chartWindow']) });
             }}
           >
+            {config.chartWindow !== 'all' && ![30, 60, 120].includes(config.chartWindow) ? (
+              <option value={String(config.chartWindow)}>{`最近${config.chartWindow}根`}</option>
+            ) : null}
             <option value="30">最近30根</option>
             <option value="60">最近60根</option>
             <option value="120">最近120根</option>
@@ -856,7 +884,7 @@ function PriceDisciplinePanel() {
       </div>
 
       <div className="price-tool__layout">
-        <div className="price-chart" onWheel={handleChartWheel}>
+        <div className="price-chart" ref={chartShellRef}>
           <div className="price-chart__top">
             <div>
               <strong>{klineData ? `${config.activeName || klineData.name} ${klineData.code}` : config.activeCode}</strong>
@@ -876,7 +904,7 @@ function PriceDisciplinePanel() {
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
-                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint)}
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain)}
                   <Bar dataKey="wickBase" stackId="wick" fill="transparent" isAnimationActive={false} />
                   <Bar dataKey="wickRange" stackId="wick" barSize={2} isAnimationActive={false}>
                     {chartRows.map((bar) => (
@@ -897,7 +925,7 @@ function PriceDisciplinePanel() {
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
-                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint)}
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain)}
                   {config.chartType === 'area' ? (
                     <Area type="monotone" dataKey="close" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} />
                   ) : (

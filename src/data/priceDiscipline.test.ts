@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateMovePercent,
+  calculatePriceDomain,
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
@@ -11,6 +12,7 @@ import {
   resolveSecurityQuery,
   searchSecuritySuggestions,
   parseManualLevels,
+  KLINE_PERIODS,
 } from './priceDiscipline';
 
 describe('priceDiscipline', () => {
@@ -66,6 +68,31 @@ describe('priceDiscipline', () => {
         },
       ],
     });
+  });
+
+  it('includes 30-minute K-line support for Eastmoney requests', async () => {
+    const requestedUrls: string[] = [];
+    const fetcher = async (url: string) => {
+      requestedUrls.push(url);
+      return {
+        ok: true,
+        json: async () => ({
+          data: {
+            code: '300750',
+            name: 'stock',
+            klines: ['2026-07-07 10:00,10,11,12,9,100,1000,3'],
+          },
+        }),
+      };
+    };
+
+    await fetchKlineData({ code: '300750', period: '30m', fetcher });
+
+    expect(KLINE_PERIODS.find((period) => period.value === '30m')).toMatchObject({
+      label: expect.stringContaining('30'),
+      klt: '30',
+    });
+    expect(requestedUrls[0]).toContain('klt=30');
   });
 
   it('resolves name-only security input through the search API', async () => {
@@ -186,12 +213,26 @@ describe('priceDiscipline', () => {
     expect(calculateVisibleBars(bars, 'all').map((bar) => bar.time)).toEqual(['1', '2', '3', '4', '5']);
   });
 
-  it('moves chart windows through finance-style wheel zoom steps', () => {
-    expect(calculateZoomWindow(120, 160, 'in')).toBe(60);
-    expect(calculateZoomWindow(60, 160, 'in')).toBe(30);
-    expect(calculateZoomWindow(30, 160, 'in')).toBe(30);
-    expect(calculateZoomWindow(30, 160, 'out')).toBe(60);
-    expect(calculateZoomWindow(120, 160, 'out')).toBe('all');
-    expect(calculateZoomWindow('all', 160, 'in')).toBe(120);
+  it('moves chart windows through continuous wheel zoom ranges', () => {
+    expect(calculateZoomWindow(120, 160, 'in')).toBe(98);
+    expect(calculateZoomWindow(98, 160, 'in')).toBe(80);
+    expect(calculateZoomWindow(12, 160, 'in')).toBe(12);
+    expect(calculateZoomWindow(98, 160, 'out')).toBe(120);
+    expect(calculateZoomWindow(140, 160, 'out')).toBe('all');
+    expect(calculateZoomWindow('all', 160, 'in')).toBe(131);
+  });
+
+  it('calculates a price-domain from visible highs lows and reference levels', () => {
+    const domain = calculatePriceDomain(
+      [
+        { time: '1', open: 100, close: 102, high: 105, low: 98, volume: 1, amount: 1, amplitude: 1 },
+        { time: '2', open: 102, close: 101, high: 108, low: 99, volume: 1, amount: 1, amplitude: 1 },
+      ],
+      [95, 112],
+    );
+
+    expect(domain[0]).toBeLessThan(95);
+    expect(domain[1]).toBeGreaterThan(112);
+    expect(domain[0]).toBeGreaterThan(80);
   });
 });
