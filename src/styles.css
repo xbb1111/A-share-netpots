@@ -1056,7 +1056,8 @@ h2 {
 }
 
 .tool-card__launch {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
   width: 100%;
   min-width: 0;
   min-height: 58px;
@@ -1066,12 +1067,16 @@ h2 {
   color: inherit;
   cursor: pointer;
   align-items: center;
-  justify-content: space-between;
   text-align: left;
+}
+
+.tool-card__launch div {
+  min-width: 0;
 }
 
 .tool-card__launch svg {
   flex: 0 0 auto;
+  justify-self: end;
   color: var(--gold);
 }
 
