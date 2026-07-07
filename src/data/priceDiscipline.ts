@@ -226,6 +226,14 @@ export function calculateMovePercent(buyPrice: number, targetPrice: number): num
   return roundPercent(((targetPrice - buyPrice) / buyPrice) * 100);
 }
 
+export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all'): T[] {
+  if (windowSize === 'all' || windowSize >= bars.length) {
+    return bars;
+  }
+
+  return bars.slice(-windowSize);
+}
+
 export function roundPrice(price: number): number {
   return Number(price.toFixed(2));
 }

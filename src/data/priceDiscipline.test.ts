@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateMovePercent,
   calculateStopLoss,
+  calculateVisibleBars,
   deriveAutoLevels,
   fetchKlineData,
   getSecid,
@@ -137,5 +138,21 @@ describe('priceDiscipline', () => {
   it('calculates target moves relative to the buy price with two decimals', () => {
     expect(calculateMovePercent(100, 110.126)).toBe(10.13);
     expect(calculateMovePercent(100, 96)).toBe(-4);
+  });
+
+  it('selects the latest visible bars by window size', () => {
+    const bars = Array.from({ length: 5 }, (_, index) => ({
+      time: String(index + 1),
+      open: index,
+      close: index,
+      high: index,
+      low: index,
+      volume: 1,
+      amount: 1,
+      amplitude: 1,
+    }));
+
+    expect(calculateVisibleBars(bars, 3).map((bar) => bar.time)).toEqual(['3', '4', '5']);
+    expect(calculateVisibleBars(bars, 'all').map((bar) => bar.time)).toEqual(['1', '2', '3', '4', '5']);
   });
 });

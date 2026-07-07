@@ -25,7 +25,6 @@ import {
   AreaChart,
   Bar,
   BarChart,
-  Brush,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -43,6 +42,7 @@ import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
   calculateStopLoss,
+  calculateVisibleBars,
   deriveAutoLevels,
   fetchKlineData,
   KLINE_PERIODS,
@@ -67,6 +67,7 @@ type PriceToolConfig = {
   activeName: string;
   period: KlinePeriod;
   chartType: 'line' | 'area' | 'candlestick';
+  chartWindow: 30 | 60 | 120 | 'all';
   buyPrice: string;
   manualLevels: string;
   isCollapsed: boolean;
@@ -105,6 +106,7 @@ const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   activeName: '',
   period: 'daily',
   chartType: 'line',
+  chartWindow: 120,
   buyPrice: '',
   manualLevels: '',
   isCollapsed: false,
@@ -497,7 +499,10 @@ function PriceDisciplinePanel() {
   const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
   const autoLevels = useMemo(() => deriveAutoLevels(klineData?.bars ?? []), [klineData]);
-  const chartRows = useMemo(() => toChartRows(klineData?.bars ?? []), [klineData]);
+  const chartRows = useMemo(
+    () => toChartRows(calculateVisibleBars(klineData?.bars ?? [], config.chartWindow)),
+    [config.chartWindow, klineData],
+  );
   const stopLoss = useMemo(() => {
     if (!hasBuyPrice) {
       return null;
@@ -722,6 +727,22 @@ function PriceDisciplinePanel() {
             <option value="candlestick">K线</option>
           </select>
         </label>
+
+        <label>
+          <span>显示范围</span>
+          <select
+            value={String(config.chartWindow)}
+            onChange={(event) => {
+              const value = event.target.value;
+              updateConfig({ chartWindow: value === 'all' ? 'all' : (Number(value) as PriceToolConfig['chartWindow']) });
+            }}
+          >
+            <option value="30">最近30根</option>
+            <option value="60">最近60根</option>
+            <option value="120">最近120根</option>
+            <option value="all">全部</option>
+          </select>
+        </label>
       </div>
 
       <div className="price-tool__layout">
@@ -753,7 +774,6 @@ function PriceDisciplinePanel() {
                       <Cell key={`body-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
                     ))}
                   </Bar>
-                  <Brush dataKey="time" height={26} stroke="#5eb6c9" travellerWidth={8} />
                 </ComposedChart>
               ) : (
                 <RechartsLineChart data={chartRows} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
@@ -763,11 +783,42 @@ function PriceDisciplinePanel() {
                   ) : (
                     <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
                   )}
-                  <Brush dataKey="time" height={26} stroke="#5eb6c9" travellerWidth={8} />
                 </RechartsLineChart>
               )}
             </ResponsiveContainer>
           )}
+
+          <details className="price-annotation-settings">
+            <summary>标注设置</summary>
+            <div className="price-annotation-settings__body">
+              <div className="annotation-switches">
+                {[
+                  ['showBuy', '显示买入价'],
+                  ['showStop', '显示止损价'],
+                  ['showManual', '显示手动关键价'],
+                  ['showAuto', '显示自动关键价'],
+                ].map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(config[key as keyof PriceToolConfig])}
+                      onChange={(event) => updateConfig({ [key]: event.target.checked } as Partial<PriceToolConfig>)}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <label className="manual-levels">
+                <span>手动关键价</span>
+                <textarea
+                  value={config.manualLevels}
+                  onChange={(event) => updateConfig({ manualLevels: event.target.value })}
+                  placeholder="例如：370, 385&#10;支持逗号、空格或换行"
+                />
+              </label>
+            </div>
+          </details>
         </div>
 
         <aside className="price-tool__side">

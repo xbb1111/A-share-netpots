@@ -724,7 +724,7 @@ h2 {
 
 .price-tool__controls {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.45fr) 130px 120px;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.45fr) 130px 120px 130px;
   gap: 12px;
   align-items: end;
 }
@@ -804,7 +804,7 @@ h2 {
 
 .price-tool__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: 14px;
   align-items: stretch;
 }
@@ -818,7 +818,7 @@ h2 {
 }
 
 .price-chart {
-  padding: 12px 10px 6px;
+  padding: 12px 10px;
 }
 
 .price-chart__top {
@@ -853,11 +853,16 @@ h2 {
 
 .price-tool__side {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   align-content: start;
   max-height: 500px;
   padding: 14px;
   overflow: hidden;
+}
+
+.price-tool__side > .annotation-switches,
+.price-tool__side > .manual-levels {
+  display: none;
 }
 
 .annotation-switches {
@@ -884,16 +889,16 @@ h2 {
   display: grid;
   gap: 8px;
   min-height: 0;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .price-level-table__head,
 .price-level-row {
   display: grid;
-  grid-template-columns: 72px 78px 90px 72px;
+  grid-template-columns: 78px 82px 98px 1fr;
   gap: 8px;
   align-items: center;
-  min-width: 312px;
+  min-width: 0;
 }
 
 .price-level-table__head {
@@ -905,8 +910,9 @@ h2 {
 .price-level-table__body {
   display: grid;
   gap: 8px;
-  max-height: 210px;
-  overflow: auto;
+  max-height: 426px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .price-level-row {
@@ -936,6 +942,37 @@ h2 {
   border-radius: 7px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.price-annotation-settings {
+  margin: 10px 6px 0;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.42);
+}
+
+.price-annotation-settings summary {
+  min-height: 34px;
+  padding: 8px 10px;
+  color: #a6b4c0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.price-annotation-settings__body {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1fr);
+  gap: 12px;
+  padding: 0 10px 10px;
+}
+
+.price-annotation-settings .annotation-switches {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+.price-annotation-settings .manual-levels textarea {
+  min-height: 76px;
 }
 
 .toolbox-editor {
