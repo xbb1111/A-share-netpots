@@ -363,12 +363,16 @@ export function dedupeNearbyPriceLevels<T extends { id: string; type: PriceLevel
   return result.sort((a, b) => a.price - b.price);
 }
 
-export function toggleSelectedStopLevelIds(selectedIds: string[], levelId: string, checked: boolean): string[] {
+export function toggleSelectedLevelIds(selectedIds: string[], levelId: string, checked: boolean): string[] {
   if (checked) {
     return selectedIds.includes(levelId) ? selectedIds : [...selectedIds, levelId];
   }
 
   return selectedIds.filter((id) => id !== levelId);
+}
+
+export function toggleSelectedStopLevelIds(selectedIds: string[], levelId: string, checked: boolean): string[] {
+  return toggleSelectedLevelIds(selectedIds, levelId, checked);
 }
 
 export function roundPrice(price: number): number {

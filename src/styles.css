@@ -944,7 +944,7 @@ h2 {
 .price-level-table__head,
 .price-level-row {
   display: grid;
-  grid-template-columns: 42px 72px 78px 94px 1fr;
+  grid-template-columns: 42px 42px 68px 76px 88px 1fr;
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -973,21 +973,25 @@ h2 {
   cursor: crosshair;
 }
 
-.price-level-row__stop {
+.price-level-row__check {
   display: grid;
   place-items: center;
   min-height: 22px;
 }
 
-.price-level-row__stop input {
+.price-level-row__check input {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--red);
+  accent-color: var(--gold);
   cursor: pointer;
 }
 
-.price-level-row__stop input:disabled {
+.price-level-row__check + .price-level-row__check input {
+  accent-color: var(--red);
+}
+
+.price-level-row__check input:disabled {
   cursor: not-allowed;
   opacity: 0.35;
 }
@@ -1139,7 +1143,7 @@ h2 {
   min-width: 0;
   min-height: 58px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -1149,8 +1153,8 @@ h2 {
 
 .tool-card__launch:hover,
 .tool-card__launch:focus-visible {
-  border-color: rgba(148, 163, 184, 0.22);
   background: rgba(148, 163, 184, 0.05);
+  outline: none;
 }
 
 .tool-card__launch div {

@@ -14,6 +14,7 @@ import {
   searchSecuritySuggestions,
   parseManualLevels,
   KLINE_PERIODS,
+  toggleSelectedLevelIds,
   toggleSelectedStopLevelIds,
 } from './priceDiscipline';
 
@@ -254,5 +255,11 @@ describe('priceDiscipline', () => {
     expect(toggleSelectedStopLevelIds([], 'support-1', true)).toEqual(['support-1']);
     expect(toggleSelectedStopLevelIds(['support-1'], 'support-1', true)).toEqual(['support-1']);
     expect(toggleSelectedStopLevelIds(['support-1', 'resistance-1'], 'support-1', false)).toEqual(['resistance-1']);
+  });
+
+  it('toggles generic selected level ids for pinning and stop selections', () => {
+    expect(toggleSelectedLevelIds([], 'support-1', true)).toEqual(['support-1']);
+    expect(toggleSelectedLevelIds(['support-1'], 'support-1', true)).toEqual(['support-1']);
+    expect(toggleSelectedLevelIds(['support-1', 'resistance-1'], 'support-1', false)).toEqual(['resistance-1']);
   });
 });

@@ -52,6 +52,7 @@ import {
   resolveSecurityQuery,
   roundPrice,
   searchSecuritySuggestions,
+  toggleSelectedLevelIds,
   toggleSelectedStopLevelIds,
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
@@ -74,6 +75,7 @@ type PriceToolConfig = {
   chartWindow: number | 'all';
   buyPrice: string;
   manualLevels: string;
+  pinnedLevelIds: string[];
   stopLevelIds: string[];
   isCollapsed: boolean;
   showBuy: boolean;
@@ -119,6 +121,7 @@ const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   chartWindow: 120,
   buyPrice: '',
   manualLevels: '',
+  pinnedLevelIds: [],
   stopLevelIds: [],
   isCollapsed: false,
   showBuy: true,
@@ -377,6 +380,7 @@ function getInitialPriceToolConfig(): PriceToolConfig {
     const parsed = { ...DEFAULT_PRICE_TOOL_CONFIG, ...(JSON.parse(saved) as Partial<PriceToolConfig>) };
     return {
       ...parsed,
+      pinnedLevelIds: Array.isArray(parsed.pinnedLevelIds) ? parsed.pinnedLevelIds : [],
       stopLevelIds: Array.isArray(parsed.stopLevelIds) ? parsed.stopLevelIds : [],
     };
   } catch {
@@ -554,12 +558,18 @@ function PriceDisciplinePanel() {
 
     return rows.sort((a, b) => a.price - b.price);
   }, [autoLevels, buyPrice, hasBuyPrice, manualPrices]);
+  const pinnedLevelIds = useMemo(() => new Set(config.pinnedLevelIds), [config.pinnedLevelIds]);
   const selectedStopIds = useMemo(() => new Set(config.stopLevelIds), [config.stopLevelIds]);
   const referenceRows = dedupeNearbyPriceLevels(tableRows
     .filter((row) => {
+      const isPinned = pinnedLevelIds.has(row.id) && row.type !== 'buy';
       const isSelectedStop = selectedStopIds.has(row.id) && row.type !== 'buy';
 
       if (row.id === highlightedLevelId) {
+        return true;
+      }
+
+      if (isPinned) {
         return true;
       }
 
@@ -675,6 +685,16 @@ function PriceDisciplinePanel() {
 
   function updateConfig(patch: Partial<PriceToolConfig>) {
     setConfig((current) => ({ ...current, ...patch }));
+  }
+
+  function togglePinnedLevel(row: PriceTableRow, checked: boolean) {
+    if (row.type === 'buy') {
+      return;
+    }
+
+    updateConfig({
+      pinnedLevelIds: toggleSelectedLevelIds(config.pinnedLevelIds, row.id, checked),
+    });
   }
 
   function toggleStopLevel(row: PriceTableRow, checked: boolean) {
@@ -986,6 +1006,7 @@ function PriceDisciplinePanel() {
 
           <div className="price-level-table" role="table" aria-label="关键价格涨跌幅">
             <div className="price-level-table__head" role="row">
+              <span>固定</span>
               <span>止损</span>
               <span>类型</span>
               <span>价格</span>
@@ -1002,7 +1023,15 @@ function PriceDisciplinePanel() {
                     onMouseLeave={() => setHighlightedLevelId(null)}
                     role="row"
                   >
-                    <label className="price-level-row__stop" aria-label={`设为止损价 ${formatPrice(row.price)}`}>
+                    <label className="price-level-row__check" aria-label={`固定显示 ${formatPrice(row.price)}`}>
+                      <input
+                        type="checkbox"
+                        checked={pinnedLevelIds.has(row.id)}
+                        disabled={row.type === 'buy'}
+                        onChange={(event) => togglePinnedLevel(row, event.target.checked)}
+                      />
+                    </label>
+                    <label className="price-level-row__check" aria-label={`设为止损价 ${formatPrice(row.price)}`}>
                       <input
                         type="checkbox"
                         checked={selectedStopIds.has(row.id)}
