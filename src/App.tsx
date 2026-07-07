@@ -888,6 +888,7 @@ function ToolboxPage() {
   });
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [isPriceToolOpen, setIsPriceToolOpen] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem('alpha-desk-tools', JSON.stringify(tools));
@@ -913,8 +914,6 @@ function ToolboxPage() {
 
   return (
     <section className="toolbox-page">
-      <PriceDisciplinePanel />
-
       <div className="panel toolbox-editor">
         <SectionHeader icon={Wrench} eyebrow="Toolbox" title="工具箱" />
         <div className="tool-form">
@@ -934,6 +933,21 @@ function ToolboxPage() {
       </div>
 
       <div className="tool-grid">
+        <article className="tool-card tool-card--builtin">
+          <button
+            className="tool-card__launch"
+            type="button"
+            onClick={() => setIsPriceToolOpen((current) => !current)}
+            aria-expanded={isPriceToolOpen}
+          >
+            <div>
+              <strong>价格纪律</strong>
+              <span>内置工具 · K线关键价与止损测算</span>
+            </div>
+            <CandlestickChart size={18} aria-hidden="true" />
+          </button>
+        </article>
+
         {tools.map((tool) => (
           <article className="tool-card" key={tool.id}>
             <a href={tool.url} target="_blank" rel="noreferrer">
@@ -946,6 +960,8 @@ function ToolboxPage() {
           </article>
         ))}
       </div>
+
+      {isPriceToolOpen ? <PriceDisciplinePanel /> : null}
     </section>
   );
 }
