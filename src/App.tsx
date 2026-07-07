@@ -42,7 +42,6 @@ import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
   calculatePriceDomain,
-  calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
   dedupeNearbyPriceLevels,
@@ -53,6 +52,7 @@ import {
   resolveSecurityQuery,
   roundPrice,
   searchSecuritySuggestions,
+  toggleSelectedStopLevelIds,
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
 import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
@@ -74,6 +74,7 @@ type PriceToolConfig = {
   chartWindow: number | 'all';
   buyPrice: string;
   manualLevels: string;
+  stopLevelIds: string[];
   isCollapsed: boolean;
   showBuy: boolean;
   showStop: boolean;
@@ -118,6 +119,7 @@ const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   chartWindow: 120,
   buyPrice: '',
   manualLevels: '',
+  stopLevelIds: [],
   isCollapsed: false,
   showBuy: true,
   showStop: true,
@@ -372,7 +374,11 @@ function getInitialPriceToolConfig(): PriceToolConfig {
   }
 
   try {
-    return { ...DEFAULT_PRICE_TOOL_CONFIG, ...(JSON.parse(saved) as Partial<PriceToolConfig>) };
+    const parsed = { ...DEFAULT_PRICE_TOOL_CONFIG, ...(JSON.parse(saved) as Partial<PriceToolConfig>) };
+    return {
+      ...parsed,
+      stopLevelIds: Array.isArray(parsed.stopLevelIds) ? parsed.stopLevelIds : [],
+    };
   } catch {
     return DEFAULT_PRICE_TOOL_CONFIG;
   }
@@ -509,18 +515,6 @@ function PriceDisciplinePanel() {
     () => toChartRows(calculateVisibleBars(klineData?.bars ?? [], config.chartWindow)),
     [config.chartWindow, klineData],
   );
-  const stopLoss = useMemo(() => {
-    if (!hasBuyPrice) {
-      return null;
-    }
-
-    const supportPrices = [
-      ...manualPrices.filter((price) => price < buyPrice),
-      ...autoLevels.filter((level) => level.type === 'support').map((level) => level.price),
-    ];
-
-    return calculateStopLoss(buyPrice, supportPrices);
-  }, [autoLevels, buyPrice, hasBuyPrice, manualPrices]);
   const tableRows = useMemo<PriceTableRow[]>(() => {
     const rows: PriceTableRow[] = [];
 
@@ -532,17 +526,6 @@ function PriceDisciplinePanel() {
         price: roundPrice(buyPrice),
         source: '输入',
         movePercent: 0,
-      });
-    }
-
-    if (stopLoss) {
-      rows.push({
-        id: 'stop',
-        type: 'stop',
-        label: getPriceLevelLabel('stop'),
-        price: stopLoss,
-        source: '纪律',
-        movePercent: hasBuyPrice ? calculateMovePercent(buyPrice, stopLoss) : null,
       });
     }
 
@@ -570,30 +553,39 @@ function PriceDisciplinePanel() {
     });
 
     return rows.sort((a, b) => a.price - b.price);
-  }, [autoLevels, buyPrice, hasBuyPrice, manualPrices, stopLoss]);
-  const referenceRows = dedupeNearbyPriceLevels(tableRows.filter((row) => {
-    if (row.id === highlightedLevelId) {
+  }, [autoLevels, buyPrice, hasBuyPrice, manualPrices]);
+  const selectedStopIds = useMemo(() => new Set(config.stopLevelIds), [config.stopLevelIds]);
+  const referenceRows = dedupeNearbyPriceLevels(tableRows
+    .filter((row) => {
+      const isSelectedStop = selectedStopIds.has(row.id) && row.type !== 'buy';
+
+      if (row.id === highlightedLevelId) {
+        return true;
+      }
+
+      if (isSelectedStop) {
+        return config.showStop;
+      }
+
+      if (row.type === 'buy') {
+        return config.showBuy;
+      }
+
+      if (row.source === '手动') {
+        return config.showManual;
+      }
+
+      if (row.source.startsWith('自动')) {
+        return config.showAuto;
+      }
+
       return true;
-    }
-
-    if (row.type === 'buy') {
-      return config.showBuy;
-    }
-
-    if (row.type === 'stop') {
-      return config.showStop;
-    }
-
-    if (row.source === '手动') {
-      return config.showManual;
-    }
-
-    if (row.source.startsWith('自动')) {
-      return config.showAuto;
-    }
-
-    return true;
-  }), highlightedLevelId);
+    })
+    .map((row) => (
+      selectedStopIds.has(row.id) && row.type !== 'buy'
+        ? { ...row, type: 'stop' as const, label: getPriceLevelLabel('stop') }
+        : row
+    )), highlightedLevelId);
   const chartPriceDomain = useMemo(
     () => calculatePriceDomain(chartRows, referenceRows.map((row) => row.price)),
     [chartRows, referenceRows],
@@ -683,6 +675,16 @@ function PriceDisciplinePanel() {
 
   function updateConfig(patch: Partial<PriceToolConfig>) {
     setConfig((current) => ({ ...current, ...patch }));
+  }
+
+  function toggleStopLevel(row: PriceTableRow, checked: boolean) {
+    if (row.type === 'buy') {
+      return;
+    }
+
+    updateConfig({
+      stopLevelIds: toggleSelectedStopLevelIds(config.stopLevelIds, row.id, checked),
+    });
   }
 
   function applyChartZoom(deltaY: number) {
@@ -984,6 +986,7 @@ function PriceDisciplinePanel() {
 
           <div className="price-level-table" role="table" aria-label="关键价格涨跌幅">
             <div className="price-level-table__head" role="row">
+              <span>止损</span>
               <span>类型</span>
               <span>价格</span>
               <span>相对买入价</span>
@@ -999,6 +1002,14 @@ function PriceDisciplinePanel() {
                     onMouseLeave={() => setHighlightedLevelId(null)}
                     role="row"
                   >
+                    <label className="price-level-row__stop" aria-label={`设为止损价 ${formatPrice(row.price)}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedStopIds.has(row.id)}
+                        disabled={row.type === 'buy'}
+                        onChange={(event) => toggleStopLevel(row, event.target.checked)}
+                      />
+                    </label>
                     <span style={{ color: getPriceLevelColor(row.type) }}>{row.label}</span>
                     <strong>{formatPrice(row.price)}</strong>
                     <span className={(row.movePercent ?? 0) >= 0 ? 'positive' : 'negative'}>

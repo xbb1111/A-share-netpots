@@ -14,6 +14,7 @@ import {
   searchSecuritySuggestions,
   parseManualLevels,
   KLINE_PERIODS,
+  toggleSelectedStopLevelIds,
 } from './priceDiscipline';
 
 describe('priceDiscipline', () => {
@@ -247,5 +248,11 @@ describe('priceDiscipline', () => {
 
     expect(dedupeNearbyPriceLevels(rows).map((row) => row.id)).not.toContain('resistance-1');
     expect(dedupeNearbyPriceLevels(rows, 'resistance-1').map((row) => row.id)).toContain('resistance-1');
+  });
+
+  it('toggles selected stop level ids without duplicates', () => {
+    expect(toggleSelectedStopLevelIds([], 'support-1', true)).toEqual(['support-1']);
+    expect(toggleSelectedStopLevelIds(['support-1'], 'support-1', true)).toEqual(['support-1']);
+    expect(toggleSelectedStopLevelIds(['support-1', 'resistance-1'], 'support-1', false)).toEqual(['resistance-1']);
   });
 });
