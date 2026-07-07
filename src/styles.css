@@ -819,6 +819,7 @@ h2 {
 
 .price-chart {
   padding: 12px 10px;
+  cursor: crosshair;
 }
 
 .price-chart__top {
@@ -921,6 +922,13 @@ h2 {
   border: 1px solid rgba(148, 163, 184, 0.1);
   border-radius: 7px;
   background: rgba(8, 16, 24, 0.5);
+  cursor: crosshair;
+}
+
+.price-level-row:hover,
+.price-level-row--active {
+  border-color: rgba(214, 170, 92, 0.42);
+  background: rgba(214, 170, 92, 0.08);
 }
 
 .price-level-row span,

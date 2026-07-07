@@ -234,6 +234,18 @@ export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all'): 
   return bars.slice(-windowSize);
 }
 
+export function calculateZoomWindow(
+  currentWindow: 30 | 60 | 120 | 'all',
+  totalBars: number,
+  direction: 'in' | 'out',
+): 30 | 60 | 120 | 'all' {
+  const steps: Array<30 | 60 | 120 | 'all'> = totalBars <= 60 ? [30, 60, 'all'] : [30, 60, 120, 'all'];
+  const currentIndex = Math.max(0, steps.indexOf(currentWindow));
+  const nextIndex = direction === 'in' ? Math.max(0, currentIndex - 1) : Math.min(steps.length - 1, currentIndex + 1);
+
+  return steps[nextIndex] ?? currentWindow;
+}
+
 export function roundPrice(price: number): number {
   return Number(price.toFixed(2));
 }

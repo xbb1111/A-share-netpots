@@ -3,6 +3,7 @@ import {
   calculateMovePercent,
   calculateStopLoss,
   calculateVisibleBars,
+  calculateZoomWindow,
   deriveAutoLevels,
   fetchKlineData,
   getSecid,
@@ -154,5 +155,14 @@ describe('priceDiscipline', () => {
 
     expect(calculateVisibleBars(bars, 3).map((bar) => bar.time)).toEqual(['3', '4', '5']);
     expect(calculateVisibleBars(bars, 'all').map((bar) => bar.time)).toEqual(['1', '2', '3', '4', '5']);
+  });
+
+  it('moves chart windows through finance-style wheel zoom steps', () => {
+    expect(calculateZoomWindow(120, 160, 'in')).toBe(60);
+    expect(calculateZoomWindow(60, 160, 'in')).toBe(30);
+    expect(calculateZoomWindow(30, 160, 'in')).toBe(30);
+    expect(calculateZoomWindow(30, 160, 'out')).toBe(60);
+    expect(calculateZoomWindow(120, 160, 'out')).toBe('all');
+    expect(calculateZoomWindow('all', 160, 'in')).toBe(120);
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type WheelEvent } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -43,6 +43,7 @@ import {
   calculateMovePercent,
   calculateStopLoss,
   calculateVisibleBars,
+  calculateZoomWindow,
   deriveAutoLevels,
   fetchKlineData,
   KLINE_PERIODS,
@@ -84,6 +85,11 @@ type PriceTableRow = {
   price: number;
   source: string;
   movePercent: number | null;
+};
+
+type ChartHoverPoint = {
+  time: string;
+  close: number;
 };
 
 const NAV_ITEMS: Array<{ key: PageKey; label: string; icon: typeof LineChart }> = [
@@ -448,7 +454,11 @@ function toChartRows(bars: KlineData['bars']) {
   });
 }
 
-function renderCommonChartChrome(referenceRows: PriceTableRow[]) {
+function renderCommonChartChrome(
+  referenceRows: PriceTableRow[],
+  highlightedLevelId: string | null,
+  hoverPoint: ChartHoverPoint | null,
+) {
   return (
     <>
       <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
@@ -477,7 +487,8 @@ function renderCommonChartChrome(referenceRows: PriceTableRow[]) {
           y={row.price}
           stroke={getPriceLevelColor(row.type)}
           strokeDasharray="5 5"
-          strokeOpacity={0.72}
+          strokeOpacity={!highlightedLevelId || highlightedLevelId === row.id ? 0.88 : 0.28}
+          strokeWidth={highlightedLevelId === row.id ? 2.4 : 1}
           label={{
             value: `${row.label} ${formatPrice(row.price)}`,
             position: 'right',
@@ -486,6 +497,12 @@ function renderCommonChartChrome(referenceRows: PriceTableRow[]) {
           }}
         />
       ))}
+      {hoverPoint ? (
+        <>
+          <ReferenceLine x={hoverPoint.time} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
+          <ReferenceLine y={hoverPoint.close} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
+        </>
+      ) : null}
     </>
   );
 }
@@ -495,6 +512,8 @@ function PriceDisciplinePanel() {
   const [klineData, setKlineData] = useState<KlineData | null>(null);
   const [isLoadingKline, setIsLoadingKline] = useState(false);
   const [klineError, setKlineError] = useState<string | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<ChartHoverPoint | null>(null);
+  const [highlightedLevelId, setHighlightedLevelId] = useState<string | null>(null);
   const buyPrice = Number(config.buyPrice);
   const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
@@ -654,6 +673,33 @@ function PriceDisciplinePanel() {
     }
   }
 
+  function handleChartWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+
+    updateConfig({
+      chartWindow: calculateZoomWindow(
+        config.chartWindow,
+        klineData?.bars.length ?? chartRows.length,
+        event.deltaY < 0 ? 'in' : 'out',
+      ),
+    });
+  }
+
+  function handleChartMouseMove(state: unknown) {
+    const payload = state as {
+      activeLabel?: string;
+      activePayload?: Array<{ payload?: { time?: string; close?: number } }>;
+    };
+    const point = payload.activePayload?.[0]?.payload;
+
+    if (!payload.activeLabel || !point || typeof point.close !== 'number') {
+      setHoverPoint(null);
+      return;
+    }
+
+    setHoverPoint({ time: point.time ?? payload.activeLabel, close: point.close });
+  }
+
   const headerTitle = config.isCollapsed
     ? `价格纪律${config.activeCode ? ` · ${config.activeName || config.activeCode}` : ''}`
     : '价格纪律';
@@ -746,7 +792,7 @@ function PriceDisciplinePanel() {
       </div>
 
       <div className="price-tool__layout">
-        <div className="price-chart">
+        <div className="price-chart" onWheel={handleChartWheel}>
           <div className="price-chart__top">
             <div>
               <strong>{klineData ? `${config.activeName || klineData.name} ${klineData.code}` : config.activeCode}</strong>
@@ -760,8 +806,13 @@ function PriceDisciplinePanel() {
           ) : (
             <ResponsiveContainer width="100%" height={430}>
               {config.chartType === 'candlestick' ? (
-                <ComposedChart data={chartRows} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
-                  {renderCommonChartChrome(referenceRows)}
+                <ComposedChart
+                  data={chartRows}
+                  margin={{ left: 0, right: 34, top: 18, bottom: 4 }}
+                  onMouseMove={handleChartMouseMove}
+                  onMouseLeave={() => setHoverPoint(null)}
+                >
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint)}
                   <Bar dataKey="wickBase" stackId="wick" fill="transparent" isAnimationActive={false} />
                   <Bar dataKey="wickRange" stackId="wick" barSize={2} isAnimationActive={false}>
                     {chartRows.map((bar) => (
@@ -776,8 +827,13 @@ function PriceDisciplinePanel() {
                   </Bar>
                 </ComposedChart>
               ) : (
-                <RechartsLineChart data={chartRows} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
-                  {renderCommonChartChrome(referenceRows)}
+                <RechartsLineChart
+                  data={chartRows}
+                  margin={{ left: 0, right: 34, top: 18, bottom: 4 }}
+                  onMouseMove={handleChartMouseMove}
+                  onMouseLeave={() => setHoverPoint(null)}
+                >
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint)}
                   {config.chartType === 'area' ? (
                     <Area type="monotone" dataKey="close" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} />
                   ) : (
@@ -859,7 +915,13 @@ function PriceDisciplinePanel() {
             <div className="price-level-table__body">
               {tableRows.length > 0 ? (
                 tableRows.map((row) => (
-                  <article className="price-level-row" key={row.id} role="row">
+                  <article
+                    className={`price-level-row${highlightedLevelId === row.id ? ' price-level-row--active' : ''}`}
+                    key={row.id}
+                    onMouseEnter={() => setHighlightedLevelId(row.id)}
+                    onMouseLeave={() => setHighlightedLevelId(null)}
+                    role="row"
+                  >
                     <span style={{ color: getPriceLevelColor(row.type) }}>{row.label}</span>
                     <strong>{formatPrice(row.price)}</strong>
                     <span className={(row.movePercent ?? 0) >= 0 ? 'positive' : 'negative'}>
