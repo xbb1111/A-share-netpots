@@ -39,6 +39,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -695,9 +696,35 @@ h2 {
   gap: 16px;
 }
 
+.price-tool--collapsed {
+  gap: 0;
+}
+
+.price-tool__header {
+  margin-bottom: 0;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 42px;
+  height: 34px;
+  border: 1px solid rgba(214, 170, 92, 0.28);
+  border-radius: 7px;
+  background: rgba(214, 170, 92, 0.08);
+  color: var(--gold);
+  cursor: pointer;
+}
+
+.price-tool--collapsed .icon-button svg:last-child {
+  transform: rotate(90deg);
+}
+
 .price-tool__controls {
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(160px, 0.5fr) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 0.45fr) 130px 120px;
   gap: 12px;
   align-items: end;
 }
@@ -715,6 +742,7 @@ h2 {
 }
 
 .price-tool__controls input,
+.price-tool__controls select,
 .manual-levels textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -724,9 +752,14 @@ h2 {
   outline: none;
 }
 
-.price-tool__controls input {
+.price-tool__controls input,
+.price-tool__controls select {
   min-height: 40px;
   padding: 0 12px;
+}
+
+.price-tool__controls select {
+  cursor: pointer;
 }
 
 .manual-levels textarea {
@@ -769,26 +802,9 @@ h2 {
   opacity: 0.66;
 }
 
-.period-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, max-content);
-  gap: 8px;
-}
-
-.period-tabs__item {
-  padding: 0 12px;
-  color: #9eb0be;
-}
-
-.period-tabs__item--active {
-  border-color: rgba(214, 170, 92, 0.4);
-  background: rgba(214, 170, 92, 0.12);
-  color: #f2d69b;
-}
-
 .price-tool__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 14px;
   align-items: stretch;
 }
@@ -831,7 +847,7 @@ h2 {
 
 .price-chart__state {
   display: grid;
-  min-height: 360px;
+  min-height: 430px;
   place-items: center;
 }
 
@@ -839,7 +855,9 @@ h2 {
   display: grid;
   gap: 14px;
   align-content: start;
+  max-height: 500px;
   padding: 14px;
+  overflow: hidden;
 }
 
 .annotation-switches {
@@ -865,22 +883,30 @@ h2 {
 .price-level-table {
   display: grid;
   gap: 8px;
+  min-height: 0;
   overflow-x: auto;
 }
 
 .price-level-table__head,
 .price-level-row {
   display: grid;
-  grid-template-columns: 120px 110px 120px 110px;
-  gap: 12px;
+  grid-template-columns: 72px 78px 90px 72px;
+  gap: 8px;
   align-items: center;
-  min-width: 520px;
+  min-width: 312px;
 }
 
 .price-level-table__head {
   padding: 0 12px 2px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.price-level-table__body {
+  display: grid;
+  gap: 8px;
+  max-height: 210px;
+  overflow: auto;
 }
 
 .price-level-row {
@@ -1096,10 +1122,6 @@ h2 {
 
   .brand {
     min-width: 210px;
-  }
-
-  .period-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .price-tool__code {

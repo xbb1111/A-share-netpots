@@ -25,8 +25,10 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Brush,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
   LineChart as RechartsLineChart,
   ReferenceLine,
@@ -45,6 +47,7 @@ import {
   fetchKlineData,
   KLINE_PERIODS,
   parseManualLevels,
+  resolveSecurityQuery,
   roundPrice,
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
@@ -61,9 +64,12 @@ type ToolboxItem = {
 type PriceToolConfig = {
   codeInput: string;
   activeCode: string;
+  activeName: string;
   period: KlinePeriod;
+  chartType: 'line' | 'area' | 'candlestick';
   buyPrice: string;
   manualLevels: string;
+  isCollapsed: boolean;
   showBuy: boolean;
   showStop: boolean;
   showManual: boolean;
@@ -96,9 +102,12 @@ const DEFAULT_TOOLS: ToolboxItem[] = [
 const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   codeInput: '300750',
   activeCode: '300750',
+  activeName: '',
   period: 'daily',
+  chartType: 'line',
   buyPrice: '',
   manualLevels: '',
+  isCollapsed: false,
   showBuy: true,
   showStop: true,
   showManual: true,
@@ -402,6 +411,83 @@ function formatPrice(value: number) {
   return value.toFixed(2);
 }
 
+function dedupeChartRows(rows: PriceTableRow[]) {
+  const priority: Record<PriceLevelType, number> = {
+    buy: 5,
+    stop: 4,
+    manual: 3,
+    support: 2,
+    resistance: 2,
+  };
+  const sorted = [...rows].sort((a, b) => priority[b.type] - priority[a.type]);
+  const result: PriceTableRow[] = [];
+
+  sorted.forEach((row) => {
+    if (!result.some((current) => Math.abs(current.price - row.price) <= 0.5)) {
+      result.push(row);
+    }
+  });
+
+  return result.sort((a, b) => a.price - b.price);
+}
+
+function toChartRows(bars: KlineData['bars']) {
+  return bars.map((bar) => {
+    const bodyLow = Math.min(bar.open, bar.close);
+    const bodyHigh = Math.max(bar.open, bar.close);
+
+    return {
+      ...bar,
+      wickBase: bar.low,
+      wickRange: Math.max(bar.high - bar.low, 0.01),
+      bodyBase: bodyLow,
+      bodyRange: Math.max(bodyHigh - bodyLow, 0.01),
+    };
+  });
+}
+
+function renderCommonChartChrome(referenceRows: PriceTableRow[]) {
+  return (
+    <>
+      <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
+      <XAxis
+        dataKey="time"
+        minTickGap={28}
+        tick={{ fill: '#7c8a96', fontSize: 11 }}
+        axisLine={false}
+        tickLine={false}
+      />
+      <YAxis
+        domain={['dataMin - 2', 'dataMax + 2']}
+        tick={{ fill: '#7c8a96', fontSize: 11 }}
+        axisLine={false}
+        tickLine={false}
+        width={52}
+      />
+      <Tooltip
+        formatter={(value, name) => [`${Number(value).toFixed(2)}`, name === 'close' ? '收盘价' : '价格']}
+        contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }}
+      />
+      {referenceRows.map((row) => (
+        <ReferenceLine
+          ifOverflow="extendDomain"
+          key={row.id}
+          y={row.price}
+          stroke={getPriceLevelColor(row.type)}
+          strokeDasharray="5 5"
+          strokeOpacity={0.72}
+          label={{
+            value: `${row.label} ${formatPrice(row.price)}`,
+            position: 'right',
+            fill: getPriceLevelColor(row.type),
+            fontSize: 11,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 function PriceDisciplinePanel() {
   const [config, setConfig] = useState<PriceToolConfig>(getInitialPriceToolConfig);
   const [klineData, setKlineData] = useState<KlineData | null>(null);
@@ -411,6 +497,7 @@ function PriceDisciplinePanel() {
   const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
   const autoLevels = useMemo(() => deriveAutoLevels(klineData?.bars ?? []), [klineData]);
+  const chartRows = useMemo(() => toChartRows(klineData?.bars ?? []), [klineData]);
   const stopLoss = useMemo(() => {
     if (!hasBuyPrice) {
       return null;
@@ -473,7 +560,7 @@ function PriceDisciplinePanel() {
 
     return rows.sort((a, b) => a.price - b.price);
   }, [autoLevels, buyPrice, hasBuyPrice, manualPrices, stopLoss]);
-  const referenceRows = tableRows.filter((row) => {
+  const referenceRows = dedupeChartRows(tableRows.filter((row) => {
     if (row.type === 'buy') {
       return config.showBuy;
     }
@@ -491,7 +578,7 @@ function PriceDisciplinePanel() {
     }
 
     return true;
-  });
+  }));
 
   useEffect(() => {
     window.localStorage.setItem(PRICE_TOOL_STORAGE_KEY, JSON.stringify(config));
@@ -538,28 +625,63 @@ function PriceDisciplinePanel() {
     setConfig((current) => ({ ...current, ...patch }));
   }
 
-  function refreshActiveCode() {
+  async function refreshActiveCode() {
     const nextCode = config.codeInput.trim();
 
     if (!nextCode) {
       return;
     }
 
-    updateConfig({ codeInput: nextCode, activeCode: nextCode });
+    setIsLoadingKline(true);
+    setKlineError(null);
+
+    try {
+      const resolved = await resolveSecurityQuery(nextCode);
+      updateConfig({
+        codeInput: resolved.name ? `${resolved.name} ${resolved.code}` : resolved.code,
+        activeCode: resolved.code,
+        activeName: resolved.name,
+      });
+    } catch (caught) {
+      setKlineError(caught instanceof Error ? caught.message : '股票或ETF解析失败');
+    } finally {
+      setIsLoadingKline(false);
+    }
   }
 
+  const headerTitle = config.isCollapsed
+    ? `价格纪律${config.activeCode ? ` · ${config.activeName || config.activeCode}` : ''}`
+    : '价格纪律';
+
   return (
-    <section className="panel price-tool">
-      <SectionHeader icon={CandlestickChart} eyebrow="Price Discipline" title="价格纪律" />
+    <section className={`panel price-tool${config.isCollapsed ? ' price-tool--collapsed' : ''}`}>
+      <div className="section-header price-tool__header">
+        <div>
+          <span>Price Discipline</span>
+          <h2>{headerTitle}</h2>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => updateConfig({ isCollapsed: !config.isCollapsed })}
+          aria-label={config.isCollapsed ? '展开价格纪律' : '折叠价格纪律'}
+        >
+          <CandlestickChart size={16} aria-hidden="true" />
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+      </div>
+
+      {config.isCollapsed ? null : (
+        <>
 
       <div className="price-tool__controls">
         <label>
-          <span>股票 / ETF 代码</span>
+          <span>股票 / ETF 名称或代码</span>
           <div className="price-tool__code">
             <input
               value={config.codeInput}
               onChange={(event) => updateConfig({ codeInput: event.target.value })}
-              placeholder="例如 300750"
+              placeholder="例如 亚翔集成 或 603929"
             />
             <button type="button" onClick={refreshActiveCode} disabled={isLoadingKline}>
               <RefreshCw size={15} aria-hidden="true" />
@@ -578,26 +700,36 @@ function PriceDisciplinePanel() {
           />
         </label>
 
-        <div className="period-tabs" aria-label="K线周期">
-          {KLINE_PERIODS.map((period) => (
-            <button
-              className={config.period === period.value ? 'period-tabs__item period-tabs__item--active' : 'period-tabs__item'}
-              key={period.value}
-              type="button"
-              onClick={() => updateConfig({ period: period.value })}
-            >
-              {period.label}
-            </button>
-          ))}
-        </div>
+        <label>
+          <span>K线周期</span>
+          <select value={config.period} onChange={(event) => updateConfig({ period: event.target.value as KlinePeriod })}>
+            {KLINE_PERIODS.map((period) => (
+              <option key={period.value} value={period.value}>
+                {period.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>图形</span>
+          <select
+            value={config.chartType}
+            onChange={(event) => updateConfig({ chartType: event.target.value as PriceToolConfig['chartType'] })}
+          >
+            <option value="line">曲线</option>
+            <option value="area">面积</option>
+            <option value="candlestick">K线</option>
+          </select>
+        </label>
       </div>
 
       <div className="price-tool__layout">
         <div className="price-chart">
           <div className="price-chart__top">
             <div>
-              <strong>{klineData ? `${klineData.name} ${klineData.code}` : config.activeCode}</strong>
-              <span>{KLINE_PERIODS.find((period) => period.value === config.period)?.label} 收盘价</span>
+              <strong>{klineData ? `${config.activeName || klineData.name} ${klineData.code}` : config.activeCode}</strong>
+              <span>{KLINE_PERIODS.find((period) => period.value === config.period)?.label} 价格图</span>
             </div>
             <span>{isLoadingKline ? '加载中' : klineData ? `${klineData.bars.length} 根K线` : '暂无数据'}</span>
           </div>
@@ -605,45 +737,35 @@ function PriceDisciplinePanel() {
           {klineError ? (
             <div className="price-chart__state">{klineError}</div>
           ) : (
-            <ResponsiveContainer width="100%" height={360}>
-              <RechartsLineChart data={klineData?.bars ?? []} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
-                <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="time"
-                  minTickGap={28}
-                  tick={{ fill: '#7c8a96', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  domain={['dataMin - 2', 'dataMax + 2']}
-                  tick={{ fill: '#7c8a96', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={52}
-                />
-                <Tooltip
-                  formatter={(value) => [`${Number(value).toFixed(2)}`, '收盘价']}
-                  contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }}
-                />
-                {referenceRows.map((row) => (
-                  <ReferenceLine
-                    ifOverflow="extendDomain"
-                    key={row.id}
-                    y={row.price}
-                    stroke={getPriceLevelColor(row.type)}
-                    strokeDasharray="5 5"
-                    strokeOpacity={0.72}
-                    label={{
-                      value: `${row.label} ${formatPrice(row.price)}`,
-                      position: 'right',
-                      fill: getPriceLevelColor(row.type),
-                      fontSize: 11,
-                    }}
-                  />
-                ))}
-                <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
-              </RechartsLineChart>
+            <ResponsiveContainer width="100%" height={430}>
+              {config.chartType === 'candlestick' ? (
+                <ComposedChart data={chartRows} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
+                  {renderCommonChartChrome(referenceRows)}
+                  <Bar dataKey="wickBase" stackId="wick" fill="transparent" isAnimationActive={false} />
+                  <Bar dataKey="wickRange" stackId="wick" barSize={2} isAnimationActive={false}>
+                    {chartRows.map((bar) => (
+                      <Cell key={`wick-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="bodyBase" stackId="body" fill="transparent" isAnimationActive={false} />
+                  <Bar dataKey="bodyRange" stackId="body" barSize={7} isAnimationActive={false}>
+                    {chartRows.map((bar) => (
+                      <Cell key={`body-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
+                    ))}
+                  </Bar>
+                  <Brush dataKey="time" height={26} stroke="#5eb6c9" travellerWidth={8} />
+                </ComposedChart>
+              ) : (
+                <RechartsLineChart data={chartRows} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
+                  {renderCommonChartChrome(referenceRows)}
+                  {config.chartType === 'area' ? (
+                    <Area type="monotone" dataKey="close" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} />
+                  ) : (
+                    <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
+                  )}
+                  <Brush dataKey="time" height={26} stroke="#5eb6c9" travellerWidth={8} />
+                </RechartsLineChart>
+              )}
             </ResponsiveContainer>
           )}
         </div>
@@ -675,31 +797,35 @@ function PriceDisciplinePanel() {
               placeholder="例如：370, 385&#10;支持逗号、空格或换行"
             />
           </label>
+
+          <div className="price-level-table" role="table" aria-label="关键价格涨跌幅">
+            <div className="price-level-table__head" role="row">
+              <span>类型</span>
+              <span>价格</span>
+              <span>相对买入价</span>
+              <span>来源</span>
+            </div>
+            <div className="price-level-table__body">
+              {tableRows.length > 0 ? (
+                tableRows.map((row) => (
+                  <article className="price-level-row" key={row.id} role="row">
+                    <span style={{ color: getPriceLevelColor(row.type) }}>{row.label}</span>
+                    <strong>{formatPrice(row.price)}</strong>
+                    <span className={(row.movePercent ?? 0) >= 0 ? 'positive' : 'negative'}>
+                      {row.movePercent === null ? '-' : `${row.movePercent > 0 ? '+' : ''}${row.movePercent.toFixed(2)}%`}
+                    </span>
+                    <span>{row.source}</span>
+                  </article>
+                ))
+              ) : (
+                <div className="price-level-table__empty">输入买入价或关键价后显示纪律计算结果。</div>
+              )}
+            </div>
+          </div>
         </aside>
       </div>
-
-      <div className="price-level-table" role="table" aria-label="关键价格涨跌幅">
-        <div className="price-level-table__head" role="row">
-          <span>类型</span>
-          <span>价格</span>
-          <span>相对买入价</span>
-          <span>来源</span>
-        </div>
-        {tableRows.length > 0 ? (
-          tableRows.map((row) => (
-            <article className="price-level-row" key={row.id} role="row">
-              <span style={{ color: getPriceLevelColor(row.type) }}>{row.label}</span>
-              <strong>{formatPrice(row.price)}</strong>
-              <span className={(row.movePercent ?? 0) >= 0 ? 'positive' : 'negative'}>
-                {row.movePercent === null ? '-' : `${row.movePercent > 0 ? '+' : ''}${row.movePercent.toFixed(2)}%`}
-              </span>
-              <span>{row.source}</span>
-            </article>
-          ))
-        ) : (
-          <div className="price-level-table__empty">输入买入价或关键价后显示纪律计算结果。</div>
-        )}
-      </div>
+        </>
+      )}
     </section>
   );
 }

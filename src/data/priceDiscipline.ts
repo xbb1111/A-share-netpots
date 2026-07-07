@@ -48,6 +48,15 @@ type EastmoneyKlineResponse = {
   };
 };
 
+type EastmoneySuggestResponse = {
+  QuotationCodeTable?: {
+    Data?: Array<{
+      Code?: string;
+      Name?: string;
+    }>;
+  };
+};
+
 export const KLINE_PERIODS: Array<{ value: KlinePeriod; label: string; klt: string; limit: number }> = [
   { value: '15m', label: '15分钟', klt: '15', limit: 160 },
   { value: '60m', label: '60分钟', klt: '60', limit: 160 },
@@ -63,6 +72,50 @@ export function getSecid(input: string): string {
   }
 
   return `0.${code}`;
+}
+
+export function parseSecurityInput(input: string): { code: string; name: string } {
+  const trimmed = input.trim();
+  const code = trimmed.match(/\b\d{6}\b/)?.[0] ?? '';
+  const name = trimmed.replace(/\b\d{6}\b/, '').trim();
+
+  return { code, name };
+}
+
+export async function resolveSecurityQuery(input: string, fetcher: Fetcher = fetch): Promise<{ code: string; name: string }> {
+  const parsed = parseSecurityInput(input);
+
+  if (parsed.code) {
+    return parsed;
+  }
+
+  if (!parsed.name) {
+    return parsed;
+  }
+
+  const url = new URL('https://searchapi.eastmoney.com/api/suggest/get');
+  url.searchParams.set('input', parsed.name);
+  url.searchParams.set('type', '14');
+  url.searchParams.set('token', 'D43BF722C8E33A6');
+  url.searchParams.set('count', '5');
+
+  const response = await fetcher(url.toString());
+
+  if (!response.ok) {
+    throw new Error('股票名称搜索失败');
+  }
+
+  const payload = (await response.json()) as EastmoneySuggestResponse;
+  const match = payload.QuotationCodeTable?.Data?.find((item) => item.Code && /^\d{6}$/.test(item.Code));
+
+  if (!match?.Code) {
+    throw new Error('未找到匹配的股票或ETF代码');
+  }
+
+  return {
+    code: match.Code,
+    name: match.Name || parsed.name,
+  };
 }
 
 export function parseManualLevels(input: string): number[] {
@@ -147,7 +200,7 @@ export function deriveAutoLevels(bars: PriceBar[], maxLevels = 8): PriceLevel[] 
   }
 
   const close = bars.at(-1)?.close ?? 0;
-  const tolerance = Math.max(close * 0.004, 0.02);
+  const tolerance = Math.max(close * 0.012, 0.05);
   const grouped = groupNearbyLevels(candidates, tolerance);
 
   return grouped

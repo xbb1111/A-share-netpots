@@ -5,6 +5,8 @@ import {
   deriveAutoLevels,
   fetchKlineData,
   getSecid,
+  parseSecurityInput,
+  resolveSecurityQuery,
   parseManualLevels,
 } from './priceDiscipline';
 
@@ -14,6 +16,13 @@ describe('priceDiscipline', () => {
     expect(getSecid('600519')).toBe('1.600519');
     expect(getSecid('510300')).toBe('1.510300');
     expect(getSecid('159919')).toBe('0.159919');
+  });
+
+  it('extracts codes and optional names from mixed security input', () => {
+    expect(parseSecurityInput('亚翔集成 603929')).toEqual({ code: '603929', name: '亚翔集成' });
+    expect(parseSecurityInput('603929 亚翔集成')).toEqual({ code: '603929', name: '亚翔集成' });
+    expect(parseSecurityInput('603929')).toEqual({ code: '603929', name: '' });
+    expect(parseSecurityInput('亚翔集成')).toEqual({ code: '', name: '亚翔集成' });
   });
 
   it('parses K-line API responses into typed price bars', async () => {
@@ -56,6 +65,33 @@ describe('priceDiscipline', () => {
     });
   });
 
+  it('resolves name-only security input through the search API', async () => {
+    const fetcher = async () => ({
+      ok: true,
+      json: async () => ({
+        QuotationCodeTable: {
+          Data: [{ Code: '603929', Name: '亚翔集成', QuoteID: '1.603929' }],
+        },
+      }),
+    });
+
+    await expect(resolveSecurityQuery('亚翔集成', fetcher)).resolves.toEqual({
+      code: '603929',
+      name: '亚翔集成',
+    });
+  });
+
+  it('uses the parsed code immediately when security input already contains a code', async () => {
+    const fetcher = async () => {
+      throw new Error('search should not run when code is present');
+    };
+
+    await expect(resolveSecurityQuery('亚翔集成 603929', fetcher)).resolves.toEqual({
+      code: '603929',
+      name: '亚翔集成',
+    });
+  });
+
   it('parses manual price levels from commas, whitespace, and line breaks', () => {
     expect(parseManualLevels('370, 375.5\ninvalid 380 0 -2')).toEqual([370, 375.5, 380]);
   });
@@ -75,6 +111,22 @@ describe('priceDiscipline', () => {
         expect.objectContaining({ type: 'resistance', price: 110, source: 'auto' }),
       ]),
     );
+  });
+
+  it('merges nearby automatic levels into one displayed price level', () => {
+    const levels = deriveAutoLevels([
+      { time: '1', open: 100, close: 100, high: 106, low: 98, volume: 1, amount: 1, amplitude: 1 },
+      { time: '2', open: 100, close: 101, high: 110, low: 99, volume: 1, amount: 1, amplitude: 1 },
+      { time: '3', open: 101, close: 100, high: 107, low: 96, volume: 1, amount: 1, amplitude: 1 },
+      { time: '4', open: 100, close: 101, high: 110.4, low: 99, volume: 1, amount: 1, amplitude: 1 },
+      { time: '5', open: 101, close: 102, high: 106, low: 97, volume: 1, amount: 1, amplitude: 1 },
+    ]);
+
+    expect(levels.filter((level) => level.type === 'resistance')).toHaveLength(1);
+    expect(levels.find((level) => level.type === 'resistance')).toMatchObject({
+      price: 110.2,
+      strength: expect.any(Number),
+    });
   });
 
   it('uses the nearest support below buy price as stop loss and falls back to 3 percent', () => {
