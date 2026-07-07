@@ -27,6 +27,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart as RechartsLineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -35,7 +38,17 @@ import {
 import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { getDashboardData, getTrendIconName } from './data/marketService';
+import {
+  calculateMovePercent,
+  calculateStopLoss,
+  deriveAutoLevels,
+  fetchKlineData,
+  KLINE_PERIODS,
+  parseManualLevels,
+  roundPrice,
+} from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
+import type { KlineData, KlinePeriod, PriceLevelType } from './data/priceDiscipline';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
 
@@ -43,6 +56,27 @@ type ToolboxItem = {
   id: string;
   name: string;
   url: string;
+};
+
+type PriceToolConfig = {
+  codeInput: string;
+  activeCode: string;
+  period: KlinePeriod;
+  buyPrice: string;
+  manualLevels: string;
+  showBuy: boolean;
+  showStop: boolean;
+  showManual: boolean;
+  showAuto: boolean;
+};
+
+type PriceTableRow = {
+  id: string;
+  type: PriceLevelType;
+  label: string;
+  price: number;
+  source: string;
+  movePercent: number | null;
 };
 
 const NAV_ITEMS: Array<{ key: PageKey; label: string; icon: typeof LineChart }> = [
@@ -58,6 +92,20 @@ const DEFAULT_TOOLS: ToolboxItem[] = [
   { id: 'calendar', name: '交易日历', url: 'https://www.sse.com.cn/disclosure/dealinstruc/closed/' },
   { id: 'announcements', name: '公告检索', url: 'https://www.cninfo.com.cn/new/index' },
 ];
+
+const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
+  codeInput: '300750',
+  activeCode: '300750',
+  period: 'daily',
+  buyPrice: '',
+  manualLevels: '',
+  showBuy: true,
+  showStop: true,
+  showManual: true,
+  showAuto: true,
+};
+
+const PRICE_TOOL_STORAGE_KEY = 'alpha-desk-price-discipline';
 
 function getInitialPage(): PageKey {
   const hash = window.location.hash.replace('#', '');
@@ -296,6 +344,366 @@ function AlertsPage({ data }: { data: DashboardData }) {
   );
 }
 
+function getInitialPriceToolConfig(): PriceToolConfig {
+  const saved = window.localStorage.getItem(PRICE_TOOL_STORAGE_KEY);
+
+  if (!saved) {
+    return DEFAULT_PRICE_TOOL_CONFIG;
+  }
+
+  try {
+    return { ...DEFAULT_PRICE_TOOL_CONFIG, ...(JSON.parse(saved) as Partial<PriceToolConfig>) };
+  } catch {
+    return DEFAULT_PRICE_TOOL_CONFIG;
+  }
+}
+
+function getPriceLevelLabel(type: PriceLevelType) {
+  if (type === 'buy') {
+    return '买入价';
+  }
+
+  if (type === 'stop') {
+    return '止损价';
+  }
+
+  if (type === 'support') {
+    return '支撑位';
+  }
+
+  if (type === 'resistance') {
+    return '压力位';
+  }
+
+  return '手动关键价';
+}
+
+function getPriceLevelColor(type: PriceLevelType) {
+  if (type === 'buy') {
+    return '#d6aa5c';
+  }
+
+  if (type === 'stop') {
+    return '#c7646d';
+  }
+
+  if (type === 'support') {
+    return '#38b894';
+  }
+
+  if (type === 'resistance') {
+    return '#5eb6c9';
+  }
+
+  return '#b7c4d0';
+}
+
+function formatPrice(value: number) {
+  return value.toFixed(2);
+}
+
+function PriceDisciplinePanel() {
+  const [config, setConfig] = useState<PriceToolConfig>(getInitialPriceToolConfig);
+  const [klineData, setKlineData] = useState<KlineData | null>(null);
+  const [isLoadingKline, setIsLoadingKline] = useState(false);
+  const [klineError, setKlineError] = useState<string | null>(null);
+  const buyPrice = Number(config.buyPrice);
+  const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
+  const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
+  const autoLevels = useMemo(() => deriveAutoLevels(klineData?.bars ?? []), [klineData]);
+  const stopLoss = useMemo(() => {
+    if (!hasBuyPrice) {
+      return null;
+    }
+
+    const supportPrices = [
+      ...manualPrices.filter((price) => price < buyPrice),
+      ...autoLevels.filter((level) => level.type === 'support').map((level) => level.price),
+    ];
+
+    return calculateStopLoss(buyPrice, supportPrices);
+  }, [autoLevels, buyPrice, hasBuyPrice, manualPrices]);
+  const tableRows = useMemo<PriceTableRow[]>(() => {
+    const rows: PriceTableRow[] = [];
+
+    if (hasBuyPrice) {
+      rows.push({
+        id: 'buy',
+        type: 'buy',
+        label: getPriceLevelLabel('buy'),
+        price: roundPrice(buyPrice),
+        source: '输入',
+        movePercent: 0,
+      });
+    }
+
+    if (stopLoss) {
+      rows.push({
+        id: 'stop',
+        type: 'stop',
+        label: getPriceLevelLabel('stop'),
+        price: stopLoss,
+        source: '纪律',
+        movePercent: hasBuyPrice ? calculateMovePercent(buyPrice, stopLoss) : null,
+      });
+    }
+
+    manualPrices.forEach((price, index) => {
+      const type = hasBuyPrice && price < buyPrice ? 'support' : hasBuyPrice && price > buyPrice ? 'resistance' : 'manual';
+      rows.push({
+        id: `manual-${index}-${price}`,
+        type,
+        label: getPriceLevelLabel(type),
+        price,
+        source: '手动',
+        movePercent: hasBuyPrice ? calculateMovePercent(buyPrice, price) : null,
+      });
+    });
+
+    autoLevels.forEach((level) => {
+      rows.push({
+        id: level.id,
+        type: level.type,
+        label: getPriceLevelLabel(level.type),
+        price: level.price,
+        source: `自动${level.strength ? ` ${level.strength}` : ''}`,
+        movePercent: hasBuyPrice ? calculateMovePercent(buyPrice, level.price) : null,
+      });
+    });
+
+    return rows.sort((a, b) => a.price - b.price);
+  }, [autoLevels, buyPrice, hasBuyPrice, manualPrices, stopLoss]);
+  const referenceRows = tableRows.filter((row) => {
+    if (row.type === 'buy') {
+      return config.showBuy;
+    }
+
+    if (row.type === 'stop') {
+      return config.showStop;
+    }
+
+    if (row.source === '手动') {
+      return config.showManual;
+    }
+
+    if (row.source.startsWith('自动')) {
+      return config.showAuto;
+    }
+
+    return true;
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(PRICE_TOOL_STORAGE_KEY, JSON.stringify(config));
+  }, [config]);
+
+  useEffect(() => {
+    let isStale = false;
+
+    async function loadKline() {
+      const code = config.activeCode.trim();
+
+      if (!code) {
+        return;
+      }
+
+      setIsLoadingKline(true);
+      setKlineError(null);
+
+      try {
+        const result = await fetchKlineData({ code, period: config.period });
+
+        if (!isStale) {
+          setKlineData(result);
+        }
+      } catch (caught) {
+        if (!isStale) {
+          setKlineError(caught instanceof Error ? caught.message : 'K线数据加载失败');
+        }
+      } finally {
+        if (!isStale) {
+          setIsLoadingKline(false);
+        }
+      }
+    }
+
+    void loadKline();
+
+    return () => {
+      isStale = true;
+    };
+  }, [config.activeCode, config.period]);
+
+  function updateConfig(patch: Partial<PriceToolConfig>) {
+    setConfig((current) => ({ ...current, ...patch }));
+  }
+
+  function refreshActiveCode() {
+    const nextCode = config.codeInput.trim();
+
+    if (!nextCode) {
+      return;
+    }
+
+    updateConfig({ codeInput: nextCode, activeCode: nextCode });
+  }
+
+  return (
+    <section className="panel price-tool">
+      <SectionHeader icon={CandlestickChart} eyebrow="Price Discipline" title="价格纪律" />
+
+      <div className="price-tool__controls">
+        <label>
+          <span>股票 / ETF 代码</span>
+          <div className="price-tool__code">
+            <input
+              value={config.codeInput}
+              onChange={(event) => updateConfig({ codeInput: event.target.value })}
+              placeholder="例如 300750"
+            />
+            <button type="button" onClick={refreshActiveCode} disabled={isLoadingKline}>
+              <RefreshCw size={15} aria-hidden="true" />
+              刷新
+            </button>
+          </div>
+        </label>
+
+        <label>
+          <span>买入价</span>
+          <input
+            value={config.buyPrice}
+            onChange={(event) => updateConfig({ buyPrice: event.target.value })}
+            inputMode="decimal"
+            placeholder="输入你的买入价"
+          />
+        </label>
+
+        <div className="period-tabs" aria-label="K线周期">
+          {KLINE_PERIODS.map((period) => (
+            <button
+              className={config.period === period.value ? 'period-tabs__item period-tabs__item--active' : 'period-tabs__item'}
+              key={period.value}
+              type="button"
+              onClick={() => updateConfig({ period: period.value })}
+            >
+              {period.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="price-tool__layout">
+        <div className="price-chart">
+          <div className="price-chart__top">
+            <div>
+              <strong>{klineData ? `${klineData.name} ${klineData.code}` : config.activeCode}</strong>
+              <span>{KLINE_PERIODS.find((period) => period.value === config.period)?.label} 收盘价</span>
+            </div>
+            <span>{isLoadingKline ? '加载中' : klineData ? `${klineData.bars.length} 根K线` : '暂无数据'}</span>
+          </div>
+
+          {klineError ? (
+            <div className="price-chart__state">{klineError}</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <RechartsLineChart data={klineData?.bars ?? []} margin={{ left: 0, right: 34, top: 18, bottom: 4 }}>
+                <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="time"
+                  minTickGap={28}
+                  tick={{ fill: '#7c8a96', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  domain={['dataMin - 2', 'dataMax + 2']}
+                  tick={{ fill: '#7c8a96', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={52}
+                />
+                <Tooltip
+                  formatter={(value) => [`${Number(value).toFixed(2)}`, '收盘价']}
+                  contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }}
+                />
+                {referenceRows.map((row) => (
+                  <ReferenceLine
+                    ifOverflow="extendDomain"
+                    key={row.id}
+                    y={row.price}
+                    stroke={getPriceLevelColor(row.type)}
+                    strokeDasharray="5 5"
+                    strokeOpacity={0.72}
+                    label={{
+                      value: `${row.label} ${formatPrice(row.price)}`,
+                      position: 'right',
+                      fill: getPriceLevelColor(row.type),
+                      fontSize: 11,
+                    }}
+                  />
+                ))}
+                <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
+              </RechartsLineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <aside className="price-tool__side">
+          <div className="annotation-switches">
+            {[
+              ['showBuy', '显示买入价'],
+              ['showStop', '显示止损价'],
+              ['showManual', '显示手动关键价'],
+              ['showAuto', '显示自动关键价'],
+            ].map(([key, label]) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(config[key as keyof PriceToolConfig])}
+                  onChange={(event) => updateConfig({ [key]: event.target.checked } as Partial<PriceToolConfig>)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+
+          <label className="manual-levels">
+            <span>手动关键价</span>
+            <textarea
+              value={config.manualLevels}
+              onChange={(event) => updateConfig({ manualLevels: event.target.value })}
+              placeholder="例如：370, 385&#10;支持逗号、空格或换行"
+            />
+          </label>
+        </aside>
+      </div>
+
+      <div className="price-level-table" role="table" aria-label="关键价格涨跌幅">
+        <div className="price-level-table__head" role="row">
+          <span>类型</span>
+          <span>价格</span>
+          <span>相对买入价</span>
+          <span>来源</span>
+        </div>
+        {tableRows.length > 0 ? (
+          tableRows.map((row) => (
+            <article className="price-level-row" key={row.id} role="row">
+              <span style={{ color: getPriceLevelColor(row.type) }}>{row.label}</span>
+              <strong>{formatPrice(row.price)}</strong>
+              <span className={(row.movePercent ?? 0) >= 0 ? 'positive' : 'negative'}>
+                {row.movePercent === null ? '-' : `${row.movePercent > 0 ? '+' : ''}${row.movePercent.toFixed(2)}%`}
+              </span>
+              <span>{row.source}</span>
+            </article>
+          ))
+        ) : (
+          <div className="price-level-table__empty">输入买入价或关键价后显示纪律计算结果。</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ToolboxPage() {
   const [tools, setTools] = useState<ToolboxItem[]>(() => {
     const saved = window.localStorage.getItem('alpha-desk-tools');
@@ -328,6 +736,8 @@ function ToolboxPage() {
 
   return (
     <section className="toolbox-page">
+      <PriceDisciplinePanel />
+
       <div className="panel toolbox-editor">
         <SectionHeader icon={Wrench} eyebrow="Toolbox" title="工具箱" />
         <div className="tool-form">
