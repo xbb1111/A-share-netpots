@@ -45,6 +45,7 @@ import {
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
+  dedupeNearbyPriceLevels,
   deriveAutoLevels,
   fetchKlineData,
   KLINE_PERIODS,
@@ -421,26 +422,6 @@ function formatPrice(value: number) {
   return value.toFixed(2);
 }
 
-function dedupeChartRows(rows: PriceTableRow[]) {
-  const priority: Record<PriceLevelType, number> = {
-    buy: 5,
-    stop: 4,
-    manual: 3,
-    support: 2,
-    resistance: 2,
-  };
-  const sorted = [...rows].sort((a, b) => priority[b.type] - priority[a.type]);
-  const result: PriceTableRow[] = [];
-
-  sorted.forEach((row) => {
-    if (!result.some((current) => Math.abs(current.price - row.price) <= 0.5)) {
-      result.push(row);
-    }
-  });
-
-  return result.sort((a, b) => a.price - b.price);
-}
-
 function toChartRows(bars: KlineData['bars']) {
   return bars.map((bar) => {
     const bodyLow = Math.min(bar.open, bar.close);
@@ -590,7 +571,11 @@ function PriceDisciplinePanel() {
 
     return rows.sort((a, b) => a.price - b.price);
   }, [autoLevels, buyPrice, hasBuyPrice, manualPrices, stopLoss]);
-  const referenceRows = dedupeChartRows(tableRows.filter((row) => {
+  const referenceRows = dedupeNearbyPriceLevels(tableRows.filter((row) => {
+    if (row.id === highlightedLevelId) {
+      return true;
+    }
+
     if (row.type === 'buy') {
       return config.showBuy;
     }
@@ -608,7 +593,7 @@ function PriceDisciplinePanel() {
     }
 
     return true;
-  }));
+  }), highlightedLevelId);
   const chartPriceDomain = useMemo(
     () => calculatePriceDomain(chartRows, referenceRows.map((row) => row.price)),
     [chartRows, referenceRows],

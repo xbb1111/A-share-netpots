@@ -331,6 +331,38 @@ export function calculatePriceDomain(bars: PriceBar[], referencePrices: number[]
   return [roundPrice(Math.max(0, min - padding)), roundPrice(max + padding)];
 }
 
+export function dedupeNearbyPriceLevels<T extends { id: string; type: PriceLevelType; price: number }>(
+  rows: T[],
+  pinnedId?: string | null,
+  tolerance = 0.5,
+): T[] {
+  const priority: Record<PriceLevelType, number> = {
+    buy: 5,
+    stop: 4,
+    manual: 3,
+    support: 2,
+    resistance: 2,
+  };
+  const sorted = [...rows].sort((a, b) => {
+    const pinnedDelta = Number(b.id === pinnedId) - Number(a.id === pinnedId);
+
+    if (pinnedDelta !== 0) {
+      return pinnedDelta;
+    }
+
+    return priority[b.type] - priority[a.type];
+  });
+  const result: T[] = [];
+
+  sorted.forEach((row) => {
+    if (!result.some((current) => Math.abs(current.price - row.price) <= tolerance)) {
+      result.push(row);
+    }
+  });
+
+  return result.sort((a, b) => a.price - b.price);
+}
+
 export function roundPrice(price: number): number {
   return Number(price.toFixed(2));
 }

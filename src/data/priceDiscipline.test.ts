@@ -5,6 +5,7 @@ import {
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
+  dedupeNearbyPriceLevels,
   deriveAutoLevels,
   fetchKlineData,
   getSecid,
@@ -234,5 +235,17 @@ describe('priceDiscipline', () => {
     expect(domain[0]).toBeLessThan(95);
     expect(domain[1]).toBeGreaterThan(112);
     expect(domain[0]).toBeGreaterThan(80);
+  });
+
+  it('keeps a pinned nearby price level visible while deduping chart rows', () => {
+    const rows = [
+      { id: 'support-1', type: 'support' as const, price: 67.02 },
+      { id: 'buy', type: 'buy' as const, price: 67.9 },
+      { id: 'support-2', type: 'support' as const, price: 68.53 },
+      { id: 'resistance-1', type: 'resistance' as const, price: 68.55 },
+    ];
+
+    expect(dedupeNearbyPriceLevels(rows).map((row) => row.id)).not.toContain('resistance-1');
+    expect(dedupeNearbyPriceLevels(rows, 'resistance-1').map((row) => row.id)).toContain('resistance-1');
   });
 });
