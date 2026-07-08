@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -50,6 +50,7 @@ import {
   dedupeNearbyPriceLevels,
   deriveAutoLevels,
   fetchKlineData,
+  getPointerLabelSide,
   KLINE_PERIODS,
   parseManualLevels,
   resolveSecurityQuery,
@@ -102,6 +103,8 @@ type ChartHoverPoint = {
   time: string;
   close: number;
   pointerPrice: number;
+  pointerY: number;
+  pointerLabelSide: 'left' | 'right';
 };
 
 const PRICE_CHART_HEIGHT = 430;
@@ -477,6 +480,7 @@ function renderCommonChartChrome(
         tickLine={false}
       />
       <YAxis
+        allowDataOverflow
         domain={priceDomain}
         tick={{ fill: '#7c8a96', fontSize: 11 }}
         axisLine={false}
@@ -506,19 +510,9 @@ function renderCommonChartChrome(
       ))}
       {hoverPoint ? (
         <>
-          <ReferenceLine x={hoverPoint.time} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
-          <ReferenceLine
-            y={hoverPoint.pointerPrice}
-            stroke="#ffffff"
-            strokeDasharray="6 6"
-            strokeOpacity={0.82}
-            label={{
-              value: formatPrice(hoverPoint.pointerPrice),
-              position: 'right',
-              fill: '#eef5f9',
-              fontSize: 11,
-            }}
-          />
+          {hoverPoint.time ? (
+            <ReferenceLine x={hoverPoint.time} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
+          ) : null}
         </>
       ) : null}
     </>
@@ -530,26 +524,84 @@ function renderIndicatorLines(config: Pick<PriceToolConfig, 'showMa' | 'showBoll
     <>
       {config.showBoll ? (
         <>
-          <Line type="monotone" dataKey="bollUpper" dot={false} stroke="#9fb3c8" strokeWidth={1} strokeDasharray="4 4" connectNulls />
-          <Line type="monotone" dataKey="bollMid" dot={false} stroke="#6f879d" strokeWidth={1} strokeDasharray="3 5" connectNulls />
-          <Line type="monotone" dataKey="bollLower" dot={false} stroke="#9fb3c8" strokeWidth={1} strokeDasharray="4 4" connectNulls />
+          <Line type="monotone" dataKey="bollUpper" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
+          <Line type="monotone" dataKey="bollMid" dot={false} stroke="#94a3b8" strokeWidth={1.1} strokeDasharray="2 5" connectNulls />
+          <Line type="monotone" dataKey="bollLower" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
         </>
       ) : null}
       {config.showMa ? (
         <>
-          <Line type="monotone" dataKey="ma5" dot={false} stroke="#f4d06f" strokeWidth={1.35} connectNulls />
-          <Line type="monotone" dataKey="ma10" dot={false} stroke="#74c0fc" strokeWidth={1.2} connectNulls />
-          <Line type="monotone" dataKey="ma20" dot={false} stroke="#b197fc" strokeWidth={1.2} connectNulls />
-          <Line type="monotone" dataKey="ma60" dot={false} stroke="#ffa94d" strokeWidth={1.2} connectNulls />
+          <Line type="monotone" dataKey="ma5" dot={false} stroke="#22d3ee" strokeWidth={1.45} connectNulls />
+          <Line type="monotone" dataKey="ma10" dot={false} stroke="#a78bfa" strokeWidth={1.35} connectNulls />
+          <Line type="monotone" dataKey="ma20" dot={false} stroke="#fb7185" strokeWidth={1.35} connectNulls />
+          <Line type="monotone" dataKey="ma60" dot={false} stroke="#4ade80" strokeWidth={1.35} connectNulls />
         </>
       ) : null}
     </>
   );
 }
 
+function CandlestickOverlay({
+  rows,
+  priceDomain,
+  width,
+}: {
+  rows: ReturnType<typeof toChartRows>;
+  priceDomain: [number, number];
+  width: number;
+}) {
+  if (width <= 0 || rows.length === 0) {
+    return null;
+  }
+
+  const plotLeft = 52;
+  const plotRight = PRICE_CHART_MARGIN.right;
+  const plotTop = PRICE_CHART_MARGIN.top;
+  const plotBottom = PRICE_CHART_HEIGHT - PRICE_CHART_MARGIN.bottom;
+  const plotWidth = Math.max(width - plotLeft - plotRight, 1);
+  const plotHeight = Math.max(plotBottom - plotTop, 1);
+  const [minPrice, maxPrice] = priceDomain;
+  const priceRange = Math.max(maxPrice - minPrice, 0.01);
+  const step = rows.length > 1 ? plotWidth / (rows.length - 1) : plotWidth;
+  const bodyWidth = Math.min(Math.max(step * 0.56, 3), 11);
+  const yForPrice = (price: number) => plotTop + ((maxPrice - price) / priceRange) * plotHeight;
+
+  return (
+    <svg className="price-candles" width={width} height={PRICE_CHART_HEIGHT} aria-hidden="true">
+      {rows.map((row, index) => {
+        const x = plotLeft + (rows.length > 1 ? step * index : plotWidth / 2);
+        const highY = yForPrice(row.high);
+        const lowY = yForPrice(row.low);
+        const openY = yForPrice(row.open);
+        const closeY = yForPrice(row.close);
+        const bodyTop = Math.min(openY, closeY);
+        const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
+        const color = row.close >= row.open ? '#38d6b2' : '#df6f7a';
+
+        return (
+          <g key={`candle-${row.time}`} stroke={color} fill={color}>
+            <line x1={x} x2={x} y1={highY} y2={lowY} strokeWidth={1.4} />
+            <rect
+              x={x - bodyWidth / 2}
+              y={bodyTop}
+              width={bodyWidth}
+              height={bodyHeight}
+              rx={1}
+              strokeWidth={1}
+              fillOpacity={0.82}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function PriceDisciplinePanel() {
   const chartShellRef = useRef<HTMLDivElement | null>(null);
+  const chartCanvasRef = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<PriceToolConfig>(getInitialPriceToolConfig);
+  const [chartCanvasWidth, setChartCanvasWidth] = useState(0);
   const [klineData, setKlineData] = useState<KlineData | null>(null);
   const [isLoadingKline, setIsLoadingKline] = useState(false);
   const [klineError, setKlineError] = useState<string | null>(null);
@@ -829,27 +881,44 @@ function PriceDisciplinePanel() {
   function handleChartMouseMove(state: unknown) {
     const payload = state as {
       activeLabel?: string;
-      chartY?: number;
       activePayload?: Array<{ payload?: { time?: string; close?: number } }>;
     };
     const point = payload.activePayload?.[0]?.payload;
 
-    if (!payload.activeLabel || !point || typeof point.close !== 'number' || typeof payload.chartY !== 'number') {
-      setHoverPoint(null);
+    if (!payload.activeLabel || !point || typeof point.close !== 'number') {
       return;
     }
 
-    setHoverPoint({
-      time: point.time ?? payload.activeLabel,
-      close: point.close,
+    setHoverPoint((current) => ({
+      time: point.time ?? payload.activeLabel ?? current?.time ?? '',
+      close: point.close ?? current?.close ?? 0,
+      pointerY: current?.pointerY ?? PRICE_CHART_HEIGHT / 2,
+      pointerPrice: current?.pointerPrice ?? point.close ?? 0,
+      pointerLabelSide: current?.pointerLabelSide ?? 'right',
+    }));
+  }
+
+  function handleChartCanvasMouseMove(event: ReactMouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = Math.min(
+      Math.max(event.clientY - rect.top, PRICE_CHART_MARGIN.top),
+      PRICE_CHART_HEIGHT - PRICE_CHART_MARGIN.bottom,
+    );
+
+    setHoverPoint((current) => ({
+      time: current?.time ?? '',
+      close: current?.close ?? 0,
+      pointerY,
+      pointerLabelSide: getPointerLabelSide(pointerX, rect.width),
       pointerPrice: calculatePointerPrice(
-        payload.chartY,
+        pointerY,
         PRICE_CHART_HEIGHT,
         PRICE_CHART_MARGIN.top,
         PRICE_CHART_MARGIN.bottom,
         chartPriceDomain,
       ),
-    });
+    }));
   }
 
   useEffect(() => {
@@ -872,9 +941,26 @@ function PriceDisciplinePanel() {
     };
   }, [config.chartWindow, klineData?.bars.length, chartRows.length]);
 
+  useEffect(() => {
+    const chartCanvas = chartCanvasRef.current;
+
+    if (!chartCanvas) {
+      return undefined;
+    }
+
+    const updateWidth = () => setChartCanvasWidth(chartCanvas.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(chartCanvas);
+
+    return () => observer.disconnect();
+  }, []);
+
   const headerTitle = config.isCollapsed
     ? `价格纪律${config.activeCode ? ` · ${config.activeName || config.activeCode}` : ''}`
     : '价格纪律';
+  const indicatorMode = config.showMa && config.showBoll ? 'all' : config.showMa ? 'ma' : config.showBoll ? 'boll' : 'none';
 
   return (
     <section className={`panel price-tool${config.isCollapsed ? ' price-tool--collapsed' : ''}`}>
@@ -983,24 +1069,42 @@ function PriceDisciplinePanel() {
             <div>
               <strong>{klineData ? `${config.activeName || klineData.name} ${klineData.code}` : config.activeCode}</strong>
               <span>{KLINE_PERIODS.find((period) => period.value === config.period)?.label} 价格图</span>
-              <div className="price-indicator-switches" aria-label="指标开关">
-                <button
-                  type="button"
-                  className={config.showMa ? 'active' : ''}
-                  onClick={() => updateConfig({ showMa: !config.showMa })}
-                  aria-pressed={config.showMa}
+              <label className="price-indicator-select">
+                <span>指标</span>
+                <select
+                  value={indicatorMode}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    updateConfig({
+                      showMa: value === 'ma' || value === 'all',
+                      showBoll: value === 'boll' || value === 'all',
+                    });
+                  }}
                 >
-                  均线 MA5/10/20/60
-                </button>
-                <button
-                  type="button"
-                  className={config.showBoll ? 'active' : ''}
-                  onClick={() => updateConfig({ showBoll: !config.showBoll })}
-                  aria-pressed={config.showBoll}
-                >
-                  BOLL
-                </button>
-              </div>
+                  <option value="none">无指标</option>
+                  <option value="ma">均线</option>
+                  <option value="boll">BOLL</option>
+                  <option value="all">均线 + BOLL</option>
+                </select>
+              </label>
+              {indicatorMode !== 'none' ? (
+                <div className="price-indicator-legend" aria-label="指标图例">
+                  {config.showMa ? (
+                    <>
+                      <span><i style={{ background: '#22d3ee' }} />MA5</span>
+                      <span><i style={{ background: '#a78bfa' }} />MA10</span>
+                      <span><i style={{ background: '#fb7185' }} />MA20</span>
+                      <span><i style={{ background: '#4ade80' }} />MA60</span>
+                    </>
+                  ) : null}
+                  {config.showBoll ? (
+                    <>
+                      <span><i className="dash" style={{ color: '#cbd5e1' }} />BOLL上/下</span>
+                      <span><i className="dash" style={{ color: '#94a3b8' }} />BOLL中</span>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <span>{isLoadingKline ? '加载中' : klineData ? `${klineData.bars.length} 根K线` : '暂无数据'}</span>
           </div>
@@ -1008,7 +1112,13 @@ function PriceDisciplinePanel() {
           {klineError ? (
             <div className="price-chart__state">{klineError}</div>
           ) : (
-            <ResponsiveContainer width="100%" height={PRICE_CHART_HEIGHT}>
+            <div
+              className="price-chart__canvas"
+              ref={chartCanvasRef}
+              onMouseMove={handleChartCanvasMouseMove}
+              onMouseLeave={() => setHoverPoint(null)}
+            >
+              <ResponsiveContainer width="100%" height={PRICE_CHART_HEIGHT}>
               {config.chartType === 'candlestick' ? (
                 <ComposedChart
                   data={chartRows}
@@ -1017,18 +1127,7 @@ function PriceDisciplinePanel() {
                   onMouseLeave={() => setHoverPoint(null)}
                 >
                   {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain)}
-                  <Bar dataKey="wickBase" stackId="wick" fill="transparent" isAnimationActive={false} />
-                  <Bar dataKey="wickRange" stackId="wick" barSize={2} isAnimationActive={false}>
-                    {chartRows.map((bar) => (
-                      <Cell key={`wick-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
-                    ))}
-                  </Bar>
-                  <Bar dataKey="bodyBase" stackId="body" fill="transparent" isAnimationActive={false} />
-                  <Bar dataKey="bodyRange" stackId="body" barSize={7} isAnimationActive={false}>
-                    {chartRows.map((bar) => (
-                      <Cell key={`body-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
-                    ))}
-                  </Bar>
+                  <Line type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
                   {renderIndicatorLines(config)}
                 </ComposedChart>
               ) : (
@@ -1047,7 +1146,20 @@ function PriceDisciplinePanel() {
                   {renderIndicatorLines(config)}
                 </RechartsLineChart>
               )}
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+              {config.chartType === 'candlestick' ? (
+                <CandlestickOverlay rows={chartRows} priceDomain={chartPriceDomain} width={chartCanvasWidth} />
+              ) : null}
+              {hoverPoint ? (
+                <div
+                  className={`price-cursor-line price-cursor-line--${hoverPoint.pointerLabelSide}`}
+                  style={{ top: `${hoverPoint.pointerY}px` }}
+                  aria-hidden="true"
+                >
+                  <span>{formatPrice(hoverPoint.pointerPrice)}</span>
+                </div>
+              ) : null}
+            </div>
           )}
 
           <details className="price-annotation-settings">

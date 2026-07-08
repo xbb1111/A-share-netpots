@@ -11,6 +11,7 @@ import {
   dedupeNearbyPriceLevels,
   deriveAutoLevels,
   fetchKlineData,
+  getPointerLabelSide,
   getSecid,
   parseSecurityInput,
   resolveSecurityQuery,
@@ -247,6 +248,11 @@ describe('priceDiscipline', () => {
     expect(calculatePointerPrice(426, 430, 18, 4, [100, 200])).toBe(100);
     expect(calculatePointerPrice(222, 430, 18, 4, [100, 200])).toBe(150);
     expect(calculatePointerPrice(500, 430, 18, 4, [100, 200])).toBe(100);
+  });
+
+  it('chooses pointer price label side from relative x position', () => {
+    expect(getPointerLabelSide(120, 600)).toBe('right');
+    expect(getPointerLabelSide(520, 600)).toBe('left');
   });
 
   it('calculates moving average series from closing prices', () => {

@@ -347,6 +347,10 @@ export function calculatePointerPrice(
   return roundPrice(maxPrice - position * (maxPrice - minPrice));
 }
 
+export function getPointerLabelSide(pointerX: number, chartWidth: number): 'left' | 'right' {
+  return pointerX > chartWidth / 2 ? 'left' : 'right';
+}
+
 export function calculateMovingAverageSeries(bars: PriceBar[], period: number): Array<number | null> {
   const safePeriod = Math.max(Math.round(period), 1);
 
