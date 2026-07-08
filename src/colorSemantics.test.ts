@@ -25,5 +25,7 @@ describe('market color semantics', () => {
     expect(app).toContain('strokeDasharray="10 5 2 5"');
     expect(app).toMatch(/dataKey="ma5"[^>]*strokeOpacity=\{0\.78\}/);
     expect(app).toMatch(/dataKey="ma60"[^>]*strokeOpacity=\{0\.66\}/);
+    expect(app).toContain('name="MA5"');
+    expect(app).toContain('name="MA60"');
   });
 });

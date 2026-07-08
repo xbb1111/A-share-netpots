@@ -43,8 +43,10 @@ import {
   calculateMovePercent,
   calculateBollingerBands,
   calculateMovingAverageSeries,
+  calculatePlotSlotCount,
   calculatePriceDomain,
   calculatePointerPrice,
+  calculateRightAlignedPlotX,
   calculateVisibleBars,
   calculateZoomWindow,
   dedupeNearbyPriceLevels,
@@ -102,6 +104,7 @@ type PriceTableRow = {
 type ChartHoverPoint = {
   time: string;
   close: number;
+  plotX: number;
   pointerPrice: number;
   pointerY: number;
   pointerLabelSide: 'left' | 'right';
@@ -112,6 +115,7 @@ const PRICE_CHART_MARGIN = { left: 0, right: 34, top: 18, bottom: 4 };
 const PRICE_CHART_Y_AXIS_WIDTH = 52;
 const PRICE_CHART_X_AXIS_HEIGHT = 30;
 const PRICE_CHART_PLOT_BOTTOM_MARGIN = PRICE_CHART_MARGIN.bottom + PRICE_CHART_X_AXIS_HEIGHT;
+const PRICE_CHART_MIN_CANDLE_SLOTS = 30;
 
 const NAV_ITEMS: Array<{ key: PageKey; label: string; icon: typeof LineChart }> = [
   { key: 'overview', label: '总览', icon: LineChart },
@@ -466,21 +470,64 @@ function toChartRows(bars: KlineData['bars']) {
   });
 }
 
+function PriceChartTooltip({
+  active,
+  label,
+  payload,
+}: {
+  active?: boolean;
+  label?: string | number;
+  payload?: Array<{ color?: string; name?: string; value?: number; payload?: { time?: string } }>;
+}) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const rows = payload.filter((item) => Number.isFinite(item.value));
+  const time = payload[0]?.payload?.time ?? label;
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="price-tooltip">
+      <strong>{time}</strong>
+      {rows.map((item) => {
+        const name = item.name === 'close' ? '收盘价' : item.name ?? '价格';
+
+        return (
+          <span key={`${name}-${item.value}`} style={{ color: item.color ?? '#dbe5ee' }}>
+            {name}：{formatPrice(Number(item.value))}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function renderCommonChartChrome(
   referenceRows: PriceTableRow[],
   highlightedLevelId: string | null,
   hoverPoint: ChartHoverPoint | null,
   priceDomain: [number, number],
+  xDomain: [number, number],
+  xTicks: number[],
+  formatXTick: (value: number) => string,
   showReferenceRows = true,
 ) {
   return (
     <>
       <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
       <XAxis
-        dataKey="time"
+        dataKey="plotX"
+        type="number"
+        domain={xDomain}
+        ticks={xTicks}
         height={PRICE_CHART_X_AXIS_HEIGHT}
         minTickGap={28}
         tick={{ fill: '#7c8a96', fontSize: 11 }}
+        tickFormatter={(value) => formatXTick(Number(value))}
         axisLine={false}
         tickLine={false}
       />
@@ -493,6 +540,7 @@ function renderCommonChartChrome(
         width={PRICE_CHART_Y_AXIS_WIDTH}
       />
       <Tooltip
+        content={<PriceChartTooltip />}
         formatter={(value, name) => [`${Number(value).toFixed(2)}`, name === 'close' ? '收盘价' : '价格']}
         contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }}
       />
@@ -516,7 +564,7 @@ function renderCommonChartChrome(
       {hoverPoint ? (
         <>
           {hoverPoint.time ? (
-            <ReferenceLine x={hoverPoint.time} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
+            <ReferenceLine x={hoverPoint.plotX} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
           ) : null}
         </>
       ) : null}
@@ -529,17 +577,17 @@ function renderIndicatorLines(config: Pick<PriceToolConfig, 'showMa' | 'showBoll
     <>
       {config.showBoll ? (
         <>
-          <Line type="monotone" dataKey="bollUpper" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
-          <Line type="monotone" dataKey="bollMid" dot={false} stroke="#94a3b8" strokeWidth={1.1} strokeDasharray="2 5" connectNulls />
-          <Line type="monotone" dataKey="bollLower" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
+          <Line name="BOLL上" type="monotone" dataKey="bollUpper" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
+          <Line name="BOLL中" type="monotone" dataKey="bollMid" dot={false} stroke="#94a3b8" strokeWidth={1.1} strokeDasharray="2 5" connectNulls />
+          <Line name="BOLL下" type="monotone" dataKey="bollLower" dot={false} stroke="#cbd5e1" strokeWidth={1.25} strokeDasharray="5 5" connectNulls />
         </>
       ) : null}
       {config.showMa ? (
         <>
-          <Line type="monotone" dataKey="ma5" dot={false} stroke="#22d3ee" strokeWidth={1.45} strokeDasharray="8 4" strokeOpacity={0.78} connectNulls />
-          <Line type="monotone" dataKey="ma10" dot={false} stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="5 5" strokeOpacity={0.74} connectNulls />
-          <Line type="monotone" dataKey="ma20" dot={false} stroke="#fb7185" strokeWidth={1.35} strokeDasharray="3 6" strokeOpacity={0.7} connectNulls />
-          <Line type="monotone" dataKey="ma60" dot={false} stroke="#4ade80" strokeWidth={1.3} strokeDasharray="10 5 2 5" strokeOpacity={0.66} connectNulls />
+          <Line name="MA5" type="monotone" dataKey="ma5" dot={false} stroke="#22d3ee" strokeWidth={1.45} strokeDasharray="8 4" strokeOpacity={0.78} connectNulls />
+          <Line name="MA10" type="monotone" dataKey="ma10" dot={false} stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="5 5" strokeOpacity={0.74} connectNulls />
+          <Line name="MA20" type="monotone" dataKey="ma20" dot={false} stroke="#fb7185" strokeWidth={1.35} strokeDasharray="3 6" strokeOpacity={0.7} connectNulls />
+          <Line name="MA60" type="monotone" dataKey="ma60" dot={false} stroke="#4ade80" strokeWidth={1.3} strokeDasharray="10 5 2 5" strokeOpacity={0.66} connectNulls />
         </>
       ) : null}
     </>
@@ -553,7 +601,7 @@ function CandlestickOverlay({
   referenceRows,
   highlightedLevelId,
 }: {
-  rows: ReturnType<typeof toChartRows>;
+  rows: Array<ReturnType<typeof toChartRows>[number] & { plotX: number }>;
   priceDomain: [number, number];
   width: number;
   referenceRows: PriceTableRow[];
@@ -571,7 +619,8 @@ function CandlestickOverlay({
   const plotHeight = Math.max(plotBottom - plotTop, 1);
   const [minPrice, maxPrice] = priceDomain;
   const priceRange = Math.max(maxPrice - minPrice, 0.01);
-  const step = rows.length > 1 ? plotWidth / (rows.length - 1) : plotWidth;
+  const slotCount = calculatePlotSlotCount(rows.length, PRICE_CHART_MIN_CANDLE_SLOTS);
+  const step = slotCount > 1 ? plotWidth / (slotCount - 1) : plotWidth;
   const bodyWidth = Math.min(Math.max(step * 0.62, 3), 22);
   const yForPrice = (price: number) => plotTop + ((maxPrice - price) / priceRange) * plotHeight;
 
@@ -606,8 +655,8 @@ function CandlestickOverlay({
           </g>
         );
       })}
-      {rows.map((row, index) => {
-        const x = plotLeft + (rows.length > 1 ? step * index : plotWidth / 2);
+      {rows.map((row) => {
+        const x = plotLeft + (slotCount > 1 ? step * row.plotX : plotWidth / 2);
         const highY = yForPrice(row.high);
         const lowY = yForPrice(row.low);
         const openY = yForPrice(row.open);
@@ -654,6 +703,8 @@ function PriceDisciplinePanel() {
   const chartRows = useMemo(
     () => {
       const visibleBars = calculateVisibleBars(klineData?.bars ?? [], config.chartWindow);
+      const minimumSlots = config.chartType === 'candlestick' ? PRICE_CHART_MIN_CANDLE_SLOTS : 1;
+      const slotCount = calculatePlotSlotCount(visibleBars.length, minimumSlots);
       const movingAverages = Object.fromEntries(
         MOVING_AVERAGE_PERIODS.map((period) => [period, calculateMovingAverageSeries(visibleBars, period)]),
       ) as Record<(typeof MOVING_AVERAGE_PERIODS)[number], Array<number | null>>;
@@ -661,6 +712,7 @@ function PriceDisciplinePanel() {
 
       return toChartRows(visibleBars).map((row, index) => ({
         ...row,
+        plotX: calculateRightAlignedPlotX(index, visibleBars.length, slotCount),
         ma5: movingAverages[5][index],
         ma10: movingAverages[10][index],
         ma20: movingAverages[20][index],
@@ -670,8 +722,31 @@ function PriceDisciplinePanel() {
         bollLower: bollingerBands[index]?.lower ?? null,
       }));
     },
-    [config.chartWindow, klineData],
+    [config.chartType, config.chartWindow, klineData],
   );
+  const chartSlotCount = useMemo(
+    () => calculatePlotSlotCount(chartRows.length, config.chartType === 'candlestick' ? PRICE_CHART_MIN_CANDLE_SLOTS : 1),
+    [chartRows.length, config.chartType],
+  );
+  const chartXDomain = useMemo<[number, number]>(
+    () => [0, Math.max(chartSlotCount - 1, 0)],
+    [chartSlotCount],
+  );
+  const chartTickLabels = useMemo(() => {
+    const labels = new Map<number, string>();
+    chartRows.forEach((row) => labels.set(row.plotX, row.time));
+    return labels;
+  }, [chartRows]);
+  const chartXTicks = useMemo(() => {
+    if (chartRows.length <= 6) {
+      return chartRows.map((row) => row.plotX);
+    }
+
+    const interval = Math.ceil((chartRows.length - 1) / 5);
+    return chartRows
+      .filter((_, index) => index === chartRows.length - 1 || index % interval === 0)
+      .map((row) => row.plotX);
+  }, [chartRows]);
   const tableRows = useMemo<PriceTableRow[]>(() => {
     const rows: PriceTableRow[] = [];
 
@@ -919,7 +994,7 @@ function PriceDisciplinePanel() {
   function handleChartMouseMove(state: unknown) {
     const payload = state as {
       activeLabel?: string;
-      activePayload?: Array<{ payload?: { time?: string; close?: number } }>;
+      activePayload?: Array<{ payload?: { time?: string; close?: number; plotX?: number } }>;
     };
     const point = payload.activePayload?.[0]?.payload;
 
@@ -930,6 +1005,7 @@ function PriceDisciplinePanel() {
     setHoverPoint((current) => ({
       time: point.time ?? payload.activeLabel ?? current?.time ?? '',
       close: point.close ?? current?.close ?? 0,
+      plotX: point.plotX ?? current?.plotX ?? 0,
       pointerY: current?.pointerY ?? PRICE_CHART_HEIGHT / 2,
       pointerPrice: current?.pointerPrice ?? point.close ?? 0,
       pointerLabelSide: current?.pointerLabelSide ?? 'right',
@@ -947,6 +1023,7 @@ function PriceDisciplinePanel() {
     setHoverPoint((current) => ({
       time: current?.time ?? '',
       close: current?.close ?? 0,
+      plotX: current?.plotX ?? 0,
       pointerY,
       pointerLabelSide: getPointerLabelSide(pointerX, rect.width),
       pointerPrice: calculatePointerPrice(
@@ -1164,8 +1241,8 @@ function PriceDisciplinePanel() {
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
-                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain, false)}
-                  <Line type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain, chartXDomain, chartXTicks, (value) => chartTickLabels.get(value) ?? '', false)}
+                  <Line name="收盘价" type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
                   {renderIndicatorLines(config)}
                 </ComposedChart>
               ) : (
@@ -1175,11 +1252,11 @@ function PriceDisciplinePanel() {
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
-                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain)}
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain, chartXDomain, chartXTicks, (value) => chartTickLabels.get(value) ?? '')}
                   {config.chartType === 'area' ? (
-                    <Area type="monotone" dataKey="close" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} />
+                    <Area name="收盘价" type="monotone" dataKey="close" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} />
                   ) : (
-                    <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
+                    <Line name="收盘价" type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
                   )}
                   {renderIndicatorLines(config)}
                 </RechartsLineChart>

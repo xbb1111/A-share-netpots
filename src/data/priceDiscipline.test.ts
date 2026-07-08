@@ -3,8 +3,10 @@ import {
   calculateMovePercent,
   calculateBollingerBands,
   calculateMovingAverageSeries,
+  calculatePlotSlotCount,
   calculatePriceDomain,
   calculatePointerPrice,
+  calculateRightAlignedPlotX,
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
@@ -227,6 +229,15 @@ describe('priceDiscipline', () => {
     expect(calculateZoomWindow(98, 160, 'out')).toBe(120);
     expect(calculateZoomWindow(140, 160, 'out')).toBe('all');
     expect(calculateZoomWindow('all', 160, 'in')).toBe(131);
+  });
+
+  it('right-aligns sparse candlestick rows into a minimum number of plot slots', () => {
+    const slotCount = calculatePlotSlotCount(12, 30);
+
+    expect(slotCount).toBe(30);
+    expect(calculateRightAlignedPlotX(0, 12, slotCount)).toBe(18);
+    expect(calculateRightAlignedPlotX(11, 12, slotCount)).toBe(29);
+    expect(calculatePlotSlotCount(60, 30)).toBe(60);
   });
 
   it('calculates a price-domain from visible highs lows and reference levels', () => {

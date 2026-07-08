@@ -291,6 +291,18 @@ export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all'): 
   return bars.slice(-windowSize);
 }
 
+export function calculatePlotSlotCount(rowCount: number, minimumSlots: number): number {
+  return Math.max(Math.round(rowCount), Math.round(minimumSlots), 1);
+}
+
+export function calculateRightAlignedPlotX(index: number, rowCount: number, slotCount: number): number {
+  const safeRowCount = Math.max(Math.round(rowCount), 1);
+  const safeSlotCount = Math.max(Math.round(slotCount), safeRowCount, 1);
+  const safeIndex = Math.min(Math.max(Math.round(index), 0), safeRowCount - 1);
+
+  return safeSlotCount - safeRowCount + safeIndex;
+}
+
 export function calculateZoomWindow(
   currentWindow: number | 'all',
   totalBars: number,

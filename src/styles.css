@@ -978,6 +978,29 @@ h2 {
   background: transparent !important;
 }
 
+.price-tooltip {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.92);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  color: #dbe5ee;
+  font-size: 13px;
+}
+
+.price-tooltip strong,
+.price-tooltip span {
+  display: block;
+  white-space: nowrap;
+}
+
+.price-tooltip strong {
+  color: #eef5f9;
+  font-weight: 500;
+}
+
 .price-chart__canvas {
   position: relative;
   height: 430px;
