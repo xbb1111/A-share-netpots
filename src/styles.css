@@ -973,7 +973,7 @@ h2 {
 .price-candles {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 4;
   overflow: visible;
   pointer-events: none;
 }

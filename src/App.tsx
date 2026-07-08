@@ -109,6 +109,9 @@ type ChartHoverPoint = {
 
 const PRICE_CHART_HEIGHT = 430;
 const PRICE_CHART_MARGIN = { left: 0, right: 34, top: 18, bottom: 4 };
+const PRICE_CHART_Y_AXIS_WIDTH = 52;
+const PRICE_CHART_X_AXIS_HEIGHT = 30;
+const PRICE_CHART_PLOT_BOTTOM_MARGIN = PRICE_CHART_MARGIN.bottom + PRICE_CHART_X_AXIS_HEIGHT;
 
 const NAV_ITEMS: Array<{ key: PageKey; label: string; icon: typeof LineChart }> = [
   { key: 'overview', label: '总览', icon: LineChart },
@@ -468,12 +471,14 @@ function renderCommonChartChrome(
   highlightedLevelId: string | null,
   hoverPoint: ChartHoverPoint | null,
   priceDomain: [number, number],
+  showReferenceRows = true,
 ) {
   return (
     <>
       <CartesianGrid stroke="#22303a" strokeDasharray="3 3" vertical={false} />
       <XAxis
         dataKey="time"
+        height={PRICE_CHART_X_AXIS_HEIGHT}
         minTickGap={28}
         tick={{ fill: '#7c8a96', fontSize: 11 }}
         axisLine={false}
@@ -485,13 +490,13 @@ function renderCommonChartChrome(
         tick={{ fill: '#7c8a96', fontSize: 11 }}
         axisLine={false}
         tickLine={false}
-        width={52}
+        width={PRICE_CHART_Y_AXIS_WIDTH}
       />
       <Tooltip
         formatter={(value, name) => [`${Number(value).toFixed(2)}`, name === 'close' ? '收盘价' : '价格']}
         contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }}
       />
-      {referenceRows.map((row) => (
+      {showReferenceRows ? referenceRows.map((row) => (
         <ReferenceLine
           ifOverflow="extendDomain"
           key={row.id}
@@ -507,7 +512,7 @@ function renderCommonChartChrome(
             fontSize: 11,
           }}
         />
-      ))}
+      )) : null}
       {hoverPoint ? (
         <>
           {hoverPoint.time ? (
@@ -545,19 +550,23 @@ function CandlestickOverlay({
   rows,
   priceDomain,
   width,
+  referenceRows,
+  highlightedLevelId,
 }: {
   rows: ReturnType<typeof toChartRows>;
   priceDomain: [number, number];
   width: number;
+  referenceRows: PriceTableRow[];
+  highlightedLevelId: string | null;
 }) {
   if (width <= 0 || rows.length === 0) {
     return null;
   }
 
-  const plotLeft = 52;
+  const plotLeft = PRICE_CHART_Y_AXIS_WIDTH;
   const plotRight = PRICE_CHART_MARGIN.right;
   const plotTop = PRICE_CHART_MARGIN.top;
-  const plotBottom = PRICE_CHART_HEIGHT - PRICE_CHART_MARGIN.bottom;
+  const plotBottom = PRICE_CHART_HEIGHT - PRICE_CHART_PLOT_BOTTOM_MARGIN;
   const plotWidth = Math.max(width - plotLeft - plotRight, 1);
   const plotHeight = Math.max(plotBottom - plotTop, 1);
   const [minPrice, maxPrice] = priceDomain;
@@ -568,6 +577,35 @@ function CandlestickOverlay({
 
   return (
     <svg className="price-candles" width={width} height={PRICE_CHART_HEIGHT} aria-hidden="true">
+      {referenceRows.map((row) => {
+        const y = yForPrice(row.price);
+        const color = getPriceLevelColor(row.type);
+        const isActive = !highlightedLevelId || highlightedLevelId === row.id;
+
+        return (
+          <g key={`candle-ref-${row.id}`}>
+            <line
+              x1={plotLeft}
+              x2={width - plotRight}
+              y1={y}
+              y2={y}
+              stroke={color}
+              strokeDasharray="5 5"
+              strokeOpacity={isActive ? 0.88 : 0.28}
+              strokeWidth={highlightedLevelId === row.id ? 2.4 : 1}
+            />
+            <text
+              x={width - plotRight + 4}
+              y={y + 4}
+              fill={color}
+              fontSize={11}
+              textAnchor="start"
+            >
+              {row.label}
+            </text>
+          </g>
+        );
+      })}
       {rows.map((row, index) => {
         const x = plotLeft + (rows.length > 1 ? step * index : plotWidth / 2);
         const highY = yForPrice(row.high);
@@ -903,7 +941,7 @@ function PriceDisciplinePanel() {
     const pointerX = event.clientX - rect.left;
     const pointerY = Math.min(
       Math.max(event.clientY - rect.top, PRICE_CHART_MARGIN.top),
-      PRICE_CHART_HEIGHT - PRICE_CHART_MARGIN.bottom,
+      PRICE_CHART_HEIGHT - PRICE_CHART_PLOT_BOTTOM_MARGIN,
     );
 
     setHoverPoint((current) => ({
@@ -915,7 +953,7 @@ function PriceDisciplinePanel() {
         pointerY,
         PRICE_CHART_HEIGHT,
         PRICE_CHART_MARGIN.top,
-        PRICE_CHART_MARGIN.bottom,
+        PRICE_CHART_PLOT_BOTTOM_MARGIN,
         chartPriceDomain,
       ),
     }));
@@ -1126,7 +1164,7 @@ function PriceDisciplinePanel() {
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
-                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain)}
+                  {renderCommonChartChrome(referenceRows, highlightedLevelId, hoverPoint, chartPriceDomain, false)}
                   <Line type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
                   {renderIndicatorLines(config)}
                 </ComposedChart>
@@ -1148,7 +1186,13 @@ function PriceDisciplinePanel() {
               )}
               </ResponsiveContainer>
               {config.chartType === 'candlestick' ? (
-                <CandlestickOverlay rows={chartRows} priceDomain={chartPriceDomain} width={chartCanvasWidth} />
+                <CandlestickOverlay
+                  rows={chartRows}
+                  priceDomain={chartPriceDomain}
+                  width={chartCanvasWidth}
+                  referenceRows={referenceRows}
+                  highlightedLevelId={highlightedLevelId}
+                />
               ) : null}
               {hoverPoint ? (
                 <div
