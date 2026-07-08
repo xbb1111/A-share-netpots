@@ -949,6 +949,29 @@ h2 {
   border-radius: 999px;
 }
 
+.price-indicator-legend i.ma {
+  width: 22px;
+  height: 0;
+  background: transparent;
+  opacity: 0.9;
+}
+
+.price-indicator-legend i.ma--5 {
+  border-top: 2px dashed #22d3ee;
+}
+
+.price-indicator-legend i.ma--10 {
+  border-top: 2px dashed #a78bfa;
+}
+
+.price-indicator-legend i.ma--20 {
+  border-top: 2px dashed #fb7185;
+}
+
+.price-indicator-legend i.ma--60 {
+  border-top: 2px dashed #4ade80;
+}
+
 .price-indicator-legend i.dash {
   height: 0;
   border-top: 2px dashed currentColor;

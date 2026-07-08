@@ -536,10 +536,10 @@ function renderIndicatorLines(config: Pick<PriceToolConfig, 'showMa' | 'showBoll
       ) : null}
       {config.showMa ? (
         <>
-          <Line type="monotone" dataKey="ma5" dot={false} stroke="#22d3ee" strokeWidth={1.45} connectNulls />
-          <Line type="monotone" dataKey="ma10" dot={false} stroke="#a78bfa" strokeWidth={1.35} connectNulls />
-          <Line type="monotone" dataKey="ma20" dot={false} stroke="#fb7185" strokeWidth={1.35} connectNulls />
-          <Line type="monotone" dataKey="ma60" dot={false} stroke="#4ade80" strokeWidth={1.35} connectNulls />
+          <Line type="monotone" dataKey="ma5" dot={false} stroke="#22d3ee" strokeWidth={1.45} strokeDasharray="8 4" strokeOpacity={0.78} connectNulls />
+          <Line type="monotone" dataKey="ma10" dot={false} stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="5 5" strokeOpacity={0.74} connectNulls />
+          <Line type="monotone" dataKey="ma20" dot={false} stroke="#fb7185" strokeWidth={1.35} strokeDasharray="3 6" strokeOpacity={0.7} connectNulls />
+          <Line type="monotone" dataKey="ma60" dot={false} stroke="#4ade80" strokeWidth={1.3} strokeDasharray="10 5 2 5" strokeOpacity={0.66} connectNulls />
         </>
       ) : null}
     </>
@@ -572,7 +572,7 @@ function CandlestickOverlay({
   const [minPrice, maxPrice] = priceDomain;
   const priceRange = Math.max(maxPrice - minPrice, 0.01);
   const step = rows.length > 1 ? plotWidth / (rows.length - 1) : plotWidth;
-  const bodyWidth = Math.min(Math.max(step * 0.56, 3), 11);
+  const bodyWidth = Math.min(Math.max(step * 0.62, 3), 22);
   const yForPrice = (price: number) => plotTop + ((maxPrice - price) / priceRange) * plotHeight;
 
   return (
@@ -1129,10 +1129,10 @@ function PriceDisciplinePanel() {
                 <div className="price-indicator-legend" aria-label="指标图例">
                   {config.showMa ? (
                     <>
-                      <span><i style={{ background: '#22d3ee' }} />MA5</span>
-                      <span><i style={{ background: '#a78bfa' }} />MA10</span>
-                      <span><i style={{ background: '#fb7185' }} />MA20</span>
-                      <span><i style={{ background: '#4ade80' }} />MA60</span>
+                      <span><i className="ma ma--5" />MA5</span>
+                      <span><i className="ma ma--10" />MA10</span>
+                      <span><i className="ma ma--20" />MA20</span>
+                      <span><i className="ma ma--60" />MA60</span>
                     </>
                   ) : null}
                   {config.showBoll ? (
