@@ -319,12 +319,12 @@ h2 {
 
 .metric-card--positive svg,
 .positive {
-  color: var(--green);
+  color: var(--red);
 }
 
 .metric-card--negative svg,
 .negative {
-  color: var(--red);
+  color: var(--green);
 }
 
 .metric-card--warning svg {
@@ -444,13 +444,13 @@ h2 {
 }
 
 .trend-badge--up {
-  background: rgba(56, 184, 148, 0.1);
-  color: var(--green);
+  background: rgba(199, 100, 109, 0.1);
+  color: var(--red);
 }
 
 .trend-badge--down {
-  background: rgba(199, 100, 109, 0.1);
-  color: var(--red);
+  background: rgba(56, 184, 148, 0.1);
+  color: var(--green);
 }
 
 .trend-badge--flat {

@@ -253,7 +253,7 @@ function IndustriesPage({ data }: { data: DashboardData }) {
               <Tooltip cursor={{ fill: 'rgba(218, 181, 111, 0.08)' }} contentStyle={{ background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee' }} />
               <Bar dataKey="heat" radius={[0, 6, 6, 0]}>
                 {data.industries.map((item) => (
-                  <Cell key={item.name} fill={item.trend === 'down' ? '#b85b62' : item.trend === 'up' ? '#38b894' : '#d6aa5c'} />
+                  <Cell key={item.name} fill={item.trend === 'down' ? '#38b894' : item.trend === 'up' ? '#c7646d' : '#d6aa5c'} />
                 ))}
               </Bar>
             </BarChart>
@@ -576,7 +576,7 @@ function CandlestickOverlay({
         const closeY = yForPrice(row.close);
         const bodyTop = Math.min(openY, closeY);
         const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
-        const color = row.close >= row.open ? '#38d6b2' : '#df6f7a';
+        const color = row.close >= row.open ? '#c7646d' : '#38d6b2';
 
         return (
           <g key={`candle-${row.time}`} stroke={color} fill={color}>
