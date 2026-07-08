@@ -331,6 +331,60 @@ export function calculatePriceDomain(bars: PriceBar[], referencePrices: number[]
   return [roundPrice(Math.max(0, min - padding)), roundPrice(max + padding)];
 }
 
+export function calculatePointerPrice(
+  chartY: number,
+  chartHeight: number,
+  marginTop: number,
+  marginBottom: number,
+  priceDomain: [number, number],
+): number {
+  const [minPrice, maxPrice] = priceDomain;
+  const plotTop = marginTop;
+  const plotBottom = Math.max(plotTop + 1, chartHeight - marginBottom);
+  const clampedY = Math.min(Math.max(chartY, plotTop), plotBottom);
+  const position = (clampedY - plotTop) / (plotBottom - plotTop);
+
+  return roundPrice(maxPrice - position * (maxPrice - minPrice));
+}
+
+export function calculateMovingAverageSeries(bars: PriceBar[], period: number): Array<number | null> {
+  const safePeriod = Math.max(Math.round(period), 1);
+
+  return bars.map((_, index) => {
+    if (index + 1 < safePeriod) {
+      return null;
+    }
+
+    const closes = bars.slice(index + 1 - safePeriod, index + 1).map((bar) => bar.close);
+    return roundPrice(average(closes));
+  });
+}
+
+export function calculateBollingerBands(
+  bars: PriceBar[],
+  period = 20,
+  deviationMultiplier = 2,
+): Array<{ mid: number | null; upper: number | null; lower: number | null }> {
+  const safePeriod = Math.max(Math.round(period), 1);
+
+  return bars.map((_, index) => {
+    if (index + 1 < safePeriod) {
+      return { mid: null, upper: null, lower: null };
+    }
+
+    const closes = bars.slice(index + 1 - safePeriod, index + 1).map((bar) => bar.close);
+    const mid = average(closes);
+    const variance = average(closes.map((close) => (close - mid) ** 2));
+    const deviation = Math.sqrt(variance);
+
+    return {
+      mid: roundPrice(mid),
+      upper: roundPrice(mid + deviation * deviationMultiplier),
+      lower: roundPrice(mid - deviation * deviationMultiplier),
+    };
+  });
+}
+
 export function dedupeNearbyPriceLevels<T extends { id: string; type: PriceLevelType; price: number }>(
   rows: T[],
   pinnedId?: string | null,

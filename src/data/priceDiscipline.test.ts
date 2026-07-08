@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateMovePercent,
+  calculateBollingerBands,
+  calculateMovingAverageSeries,
   calculatePriceDomain,
+  calculatePointerPrice,
   calculateStopLoss,
   calculateVisibleBars,
   calculateZoomWindow,
@@ -237,6 +240,52 @@ describe('priceDiscipline', () => {
     expect(domain[0]).toBeLessThan(95);
     expect(domain[1]).toBeGreaterThan(112);
     expect(domain[0]).toBeGreaterThan(80);
+  });
+
+  it('maps chart pointer y positions into price labels', () => {
+    expect(calculatePointerPrice(18, 430, 18, 4, [100, 200])).toBe(200);
+    expect(calculatePointerPrice(426, 430, 18, 4, [100, 200])).toBe(100);
+    expect(calculatePointerPrice(222, 430, 18, 4, [100, 200])).toBe(150);
+    expect(calculatePointerPrice(500, 430, 18, 4, [100, 200])).toBe(100);
+  });
+
+  it('calculates moving average series from closing prices', () => {
+    const bars = [1, 2, 3, 4, 5].map((close, index) => ({
+      time: String(index + 1),
+      open: close,
+      close,
+      high: close,
+      low: close,
+      volume: 1,
+      amount: 1,
+      amplitude: 1,
+    }));
+
+    expect(calculateMovingAverageSeries(bars, 3)).toEqual([null, null, 2, 3, 4]);
+  });
+
+  it('calculates 20-period Bollinger bands from closing prices', () => {
+    const bars = Array.from({ length: 21 }, (_, index) => {
+      const close = index + 1;
+      return {
+        time: String(close),
+        open: close,
+        close,
+        high: close,
+        low: close,
+        volume: 1,
+        amount: 1,
+        amplitude: 1,
+      };
+    });
+
+    const bands = calculateBollingerBands(bars, 20, 2);
+
+    expect(bands[18]).toEqual({ mid: null, upper: null, lower: null });
+    expect(bands[19].mid).toBe(10.5);
+    expect(bands[20].mid).toBe(11.5);
+    expect(bands[20].upper).toBeGreaterThan(bands[20].mid ?? 0);
+    expect(bands[20].lower).toBeLessThan(bands[20].mid ?? 0);
   });
 
   it('keeps a pinned nearby price level visible while deduping chart rows', () => {

@@ -41,7 +41,10 @@ import { SectionHeader } from './components/SectionHeader';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
+  calculateBollingerBands,
+  calculateMovingAverageSeries,
   calculatePriceDomain,
+  calculatePointerPrice,
   calculateVisibleBars,
   calculateZoomWindow,
   dedupeNearbyPriceLevels,
@@ -82,6 +85,8 @@ type PriceToolConfig = {
   showStop: boolean;
   showManual: boolean;
   showAuto: boolean;
+  showMa: boolean;
+  showBoll: boolean;
 };
 
 type PriceTableRow = {
@@ -96,7 +101,11 @@ type PriceTableRow = {
 type ChartHoverPoint = {
   time: string;
   close: number;
+  pointerPrice: number;
 };
+
+const PRICE_CHART_HEIGHT = 430;
+const PRICE_CHART_MARGIN = { left: 0, right: 34, top: 18, bottom: 4 };
 
 const NAV_ITEMS: Array<{ key: PageKey; label: string; icon: typeof LineChart }> = [
   { key: 'overview', label: '总览', icon: LineChart },
@@ -128,7 +137,11 @@ const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   showStop: true,
   showManual: true,
   showAuto: true,
+  showMa: false,
+  showBoll: false,
 };
+
+const MOVING_AVERAGE_PERIODS = [5, 10, 20, 60] as const;
 
 const PRICE_TOOL_STORAGE_KEY = 'alpha-desk-price-discipline';
 
@@ -494,7 +507,40 @@ function renderCommonChartChrome(
       {hoverPoint ? (
         <>
           <ReferenceLine x={hoverPoint.time} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
-          <ReferenceLine y={hoverPoint.close} stroke="#dbe5ee" strokeDasharray="3 3" strokeOpacity={0.42} />
+          <ReferenceLine
+            y={hoverPoint.pointerPrice}
+            stroke="#ffffff"
+            strokeDasharray="6 6"
+            strokeOpacity={0.82}
+            label={{
+              value: formatPrice(hoverPoint.pointerPrice),
+              position: 'right',
+              fill: '#eef5f9',
+              fontSize: 11,
+            }}
+          />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function renderIndicatorLines(config: Pick<PriceToolConfig, 'showMa' | 'showBoll'>) {
+  return (
+    <>
+      {config.showBoll ? (
+        <>
+          <Line type="monotone" dataKey="bollUpper" dot={false} stroke="#9fb3c8" strokeWidth={1} strokeDasharray="4 4" connectNulls />
+          <Line type="monotone" dataKey="bollMid" dot={false} stroke="#6f879d" strokeWidth={1} strokeDasharray="3 5" connectNulls />
+          <Line type="monotone" dataKey="bollLower" dot={false} stroke="#9fb3c8" strokeWidth={1} strokeDasharray="4 4" connectNulls />
+        </>
+      ) : null}
+      {config.showMa ? (
+        <>
+          <Line type="monotone" dataKey="ma5" dot={false} stroke="#f4d06f" strokeWidth={1.35} connectNulls />
+          <Line type="monotone" dataKey="ma10" dot={false} stroke="#74c0fc" strokeWidth={1.2} connectNulls />
+          <Line type="monotone" dataKey="ma20" dot={false} stroke="#b197fc" strokeWidth={1.2} connectNulls />
+          <Line type="monotone" dataKey="ma60" dot={false} stroke="#ffa94d" strokeWidth={1.2} connectNulls />
         </>
       ) : null}
     </>
@@ -516,7 +562,24 @@ function PriceDisciplinePanel() {
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
   const autoLevels = useMemo(() => deriveAutoLevels(klineData?.bars ?? []), [klineData]);
   const chartRows = useMemo(
-    () => toChartRows(calculateVisibleBars(klineData?.bars ?? [], config.chartWindow)),
+    () => {
+      const visibleBars = calculateVisibleBars(klineData?.bars ?? [], config.chartWindow);
+      const movingAverages = Object.fromEntries(
+        MOVING_AVERAGE_PERIODS.map((period) => [period, calculateMovingAverageSeries(visibleBars, period)]),
+      ) as Record<(typeof MOVING_AVERAGE_PERIODS)[number], Array<number | null>>;
+      const bollingerBands = calculateBollingerBands(visibleBars, 20, 2);
+
+      return toChartRows(visibleBars).map((row, index) => ({
+        ...row,
+        ma5: movingAverages[5][index],
+        ma10: movingAverages[10][index],
+        ma20: movingAverages[20][index],
+        ma60: movingAverages[60][index],
+        bollMid: bollingerBands[index]?.mid ?? null,
+        bollUpper: bollingerBands[index]?.upper ?? null,
+        bollLower: bollingerBands[index]?.lower ?? null,
+      }));
+    },
     [config.chartWindow, klineData],
   );
   const tableRows = useMemo<PriceTableRow[]>(() => {
@@ -596,9 +659,22 @@ function PriceDisciplinePanel() {
         ? { ...row, type: 'stop' as const, label: getPriceLevelLabel('stop') }
         : row
     )), highlightedLevelId);
+  const indicatorPrices = useMemo(() => chartRows.flatMap((row) => {
+    const prices: Array<number | null | undefined> = [];
+
+    if (config.showMa) {
+      prices.push(row.ma5, row.ma10, row.ma20, row.ma60);
+    }
+
+    if (config.showBoll) {
+      prices.push(row.bollMid, row.bollUpper, row.bollLower);
+    }
+
+    return prices.filter((price): price is number => Number.isFinite(price));
+  }), [chartRows, config.showBoll, config.showMa]);
   const chartPriceDomain = useMemo(
-    () => calculatePriceDomain(chartRows, referenceRows.map((row) => row.price)),
-    [chartRows, referenceRows],
+    () => calculatePriceDomain(chartRows, [...referenceRows.map((row) => row.price), ...indicatorPrices]),
+    [chartRows, indicatorPrices, referenceRows],
   );
 
   useEffect(() => {
@@ -753,16 +829,27 @@ function PriceDisciplinePanel() {
   function handleChartMouseMove(state: unknown) {
     const payload = state as {
       activeLabel?: string;
+      chartY?: number;
       activePayload?: Array<{ payload?: { time?: string; close?: number } }>;
     };
     const point = payload.activePayload?.[0]?.payload;
 
-    if (!payload.activeLabel || !point || typeof point.close !== 'number') {
+    if (!payload.activeLabel || !point || typeof point.close !== 'number' || typeof payload.chartY !== 'number') {
       setHoverPoint(null);
       return;
     }
 
-    setHoverPoint({ time: point.time ?? payload.activeLabel, close: point.close });
+    setHoverPoint({
+      time: point.time ?? payload.activeLabel,
+      close: point.close,
+      pointerPrice: calculatePointerPrice(
+        payload.chartY,
+        PRICE_CHART_HEIGHT,
+        PRICE_CHART_MARGIN.top,
+        PRICE_CHART_MARGIN.bottom,
+        chartPriceDomain,
+      ),
+    });
   }
 
   useEffect(() => {
@@ -896,6 +983,24 @@ function PriceDisciplinePanel() {
             <div>
               <strong>{klineData ? `${config.activeName || klineData.name} ${klineData.code}` : config.activeCode}</strong>
               <span>{KLINE_PERIODS.find((period) => period.value === config.period)?.label} 价格图</span>
+              <div className="price-indicator-switches" aria-label="指标开关">
+                <button
+                  type="button"
+                  className={config.showMa ? 'active' : ''}
+                  onClick={() => updateConfig({ showMa: !config.showMa })}
+                  aria-pressed={config.showMa}
+                >
+                  均线 MA5/10/20/60
+                </button>
+                <button
+                  type="button"
+                  className={config.showBoll ? 'active' : ''}
+                  onClick={() => updateConfig({ showBoll: !config.showBoll })}
+                  aria-pressed={config.showBoll}
+                >
+                  BOLL
+                </button>
+              </div>
             </div>
             <span>{isLoadingKline ? '加载中' : klineData ? `${klineData.bars.length} 根K线` : '暂无数据'}</span>
           </div>
@@ -903,11 +1008,11 @@ function PriceDisciplinePanel() {
           {klineError ? (
             <div className="price-chart__state">{klineError}</div>
           ) : (
-            <ResponsiveContainer width="100%" height={430}>
+            <ResponsiveContainer width="100%" height={PRICE_CHART_HEIGHT}>
               {config.chartType === 'candlestick' ? (
                 <ComposedChart
                   data={chartRows}
-                  margin={{ left: 0, right: 34, top: 18, bottom: 4 }}
+                  margin={PRICE_CHART_MARGIN}
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
@@ -924,11 +1029,12 @@ function PriceDisciplinePanel() {
                       <Cell key={`body-${bar.time}`} fill={bar.close >= bar.open ? '#38b894' : '#c7646d'} />
                     ))}
                   </Bar>
+                  {renderIndicatorLines(config)}
                 </ComposedChart>
               ) : (
                 <RechartsLineChart
                   data={chartRows}
-                  margin={{ left: 0, right: 34, top: 18, bottom: 4 }}
+                  margin={PRICE_CHART_MARGIN}
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={() => setHoverPoint(null)}
                 >
@@ -938,6 +1044,7 @@ function PriceDisciplinePanel() {
                   ) : (
                     <Line type="monotone" dataKey="close" dot={false} stroke="#d6aa5c" strokeWidth={2} />
                   )}
+                  {renderIndicatorLines(config)}
                 </RechartsLineChart>
               )}
             </ResponsiveContainer>
