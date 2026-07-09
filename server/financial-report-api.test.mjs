@@ -90,4 +90,58 @@ describe('financial-report-api helpers', () => {
       globalThis.fetch = fetcher;
     }
   });
+
+  it('loads filings by report categories and filters exact stock codes', async () => {
+    const fetcher = globalThis.fetch;
+    const requestedBodies = [];
+
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+
+      if (url.includes('searchapi.eastmoney.com')) {
+        return {
+          ok: true,
+          json: async () => ({ QuotationCodeTable: { Data: [{ Code: '000001', Name: '平安银行' }] } }),
+        };
+      }
+
+      requestedBodies.push(String(init?.body ?? ''));
+
+      return {
+        ok: true,
+        json: async () => ({
+          announcements: [
+            {
+              secCode: '601318',
+              announcementId: 'wrong-owner',
+              announcementTitle: '中国平安：平安银行股份有限公司2025年年度报告摘要',
+              announcementTime: Date.parse('2026-03-20T00:00:00Z'),
+              adjunctUrl: 'wrong.pdf',
+            },
+            {
+              secCode: '000001',
+              announcementId: 'bank-annual',
+              announcementTitle: '平安银行2025年年度报告',
+              announcementTime: Date.parse('2026-03-14T00:00:00Z'),
+              adjunctUrl: 'bank.pdf',
+            },
+          ],
+        }),
+      };
+    };
+
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/filings?code=000001'));
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(requestedBodies.some((body) => body.includes('category_ndbg_szsh'))).toBe(true);
+      expect(requestedBodies.some((body) => body.includes(encodeURIComponent('平安银行')))).toBe(true);
+      expect(payload.filings).toHaveLength(1);
+      expect(payload.filings[0].id).toBe('bank-annual');
+      expect(payload.filings[0].title).toBe('平安银行2025年年度报告');
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
 });

@@ -1,4 +1,11 @@
 const EASTMONEY_TOKEN = 'D43BF722C8E33A6';
+const CNINFO_REPORT_CATEGORIES = [
+  'category_ndbg_szsh',
+  'category_bndbg_szsh',
+  'category_yjdbg_szsh',
+  'category_sjdbg_szsh',
+  'category_yjygjxz_szsh',
+];
 
 export async function handleFinancialReportRequest(request) {
   try {
@@ -104,27 +111,41 @@ export async function searchSecurities(query) {
 }
 
 async function getFilings(code, type) {
-  const filings = await fetchCninfoFilings(code);
+  const [security] = await searchSecurities(code).catch(() => []);
+  const filings = await fetchCninfoFilings(code, security?.name);
   return filings
     .filter((filing) => type === 'all' || filing.type === type)
     .sort((a, b) => b.reportDate.localeCompare(a.reportDate));
 }
 
-async function fetchCninfoFilings(code) {
+async function fetchCninfoFilings(code, securityName = '') {
   if (!/^\d{6}$/.test(code)) {
     return [];
   }
 
+  const keywords = [...new Set([securityName, code].map((item) => String(item ?? '').trim()).filter(Boolean))];
+  const results = [];
+
+  for (const category of CNINFO_REPORT_CATEGORIES) {
+    for (const keyword of keywords) {
+      results.push(...(await fetchCninfoFilingPage(code, category, keyword)));
+    }
+  }
+
+  return dedupeFilings(results);
+}
+
+async function fetchCninfoFilingPage(code, category, keyword) {
   const form = new URLSearchParams();
   form.set('stock', '');
   form.set('tabName', 'fulltext');
-  form.set('pageSize', '50');
+  form.set('pageSize', '30');
   form.set('pageNum', '1');
   form.set('column', getCninfoColumn(code));
-  form.set('category', '');
+  form.set('category', category);
   form.set('plate', '');
   form.set('seDate', '');
-  form.set('searchkey', code);
+  form.set('searchkey', keyword);
   form.set('secid', '');
   form.set('sortName', '');
   form.set('sortType', '');
@@ -163,6 +184,22 @@ async function fetchCninfoFilings(code) {
     .filter((filing) => ['annual', 'interim', 'quarterly', 'earnings_preview'].includes(filing.type));
 }
 
+function dedupeFilings(filings) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const filing of filings) {
+    const key = filing.id || `${filing.title}-${filing.reportDate}-${filing.url}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(filing);
+  }
+
+  return unique;
+}
+
 async function buildRealAnalysis(code, filingId) {
   const [security] = await searchSecurities(code);
   const filings = await getFilings(code, 'all');
@@ -174,18 +211,20 @@ async function buildRealAnalysis(code, filingId) {
 
   const forecasts = await fetchEastmoneyForecasts(code).catch(() => []);
   const relatedForecast = pickRelatedForecast(forecasts, filing);
-  const componentScores = buildComponentScores(filing, forecasts, relatedForecast);
-  const riskFlags = buildRiskFlags(componentScores, relatedForecast);
-  const bullishDrivers = buildDrivers(componentScores, relatedForecast);
+  const financeReports = await fetchEastmoneyMainFinance(code).catch(() => []);
+  const relatedFinanceReport = pickRelatedFinanceReport(financeReports, filing);
+  const componentScores = buildComponentScores(filing, forecasts, relatedForecast, relatedFinanceReport);
+  const riskFlags = buildRiskFlags(componentScores, relatedForecast, relatedFinanceReport);
+  const bullishDrivers = buildDrivers(componentScores, relatedForecast, relatedFinanceReport);
   const score = summarizeScore(componentScores);
-  const verdict = deriveVerdict(score, riskFlags, relatedForecast);
+  const verdict = deriveVerdict(score, riskFlags, relatedForecast, relatedFinanceReport);
 
   return {
     security,
     filing,
     verdict,
     score,
-    expectationGap: buildExpectationGap(relatedForecast),
+    expectationGap: buildExpectationGap(relatedForecast, relatedFinanceReport),
     bullishDrivers,
     riskFlags,
     componentScores,
@@ -198,16 +237,28 @@ async function buildRealAnalysis(code, filingId) {
         '雷点按缺失项、业绩下滑、风险措辞和利润区间明确度触发',
       ],
       expectationStandard: '当前版本没有接入机构一致预期和完整季度环比财务表；因此“超预期”只在同年结构化预告明确、增速较高且无高风险雷点时给出，否则标记为待核验或分化。',
-      aiPrompt: buildAiAnalysisPrompt(security, filing, score, componentScores, riskFlags, relatedForecast),
+      aiPrompt: buildAiAnalysisPrompt(security, filing, score, componentScores, riskFlags, relatedForecast, relatedFinanceReport),
     },
     industryChecklist: buildIndustryChecklist(security.industry, filing.type),
-    summary: buildSummary(security, filing, score, componentScores, riskFlags, relatedForecast),
+    summary: buildSummary(security, filing, score, componentScores, riskFlags, relatedForecast, relatedFinanceReport),
   };
 }
 
 async function fetchEastmoneyForecasts(code) {
   const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
   url.searchParams.set('reportName', 'RPT_PUBLIC_OP_NEWPREDICT');
+  url.searchParams.set('columns', 'ALL');
+  url.searchParams.set('filter', `(SECURITY_CODE="${code}")`);
+  url.searchParams.set('pageNumber', '1');
+  url.searchParams.set('pageSize', '100');
+
+  const payload = await fetchJson(url);
+  return payload.result?.data ?? [];
+}
+
+async function fetchEastmoneyMainFinance(code) {
+  const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
+  url.searchParams.set('reportName', 'RPT_F10_FINANCE_MAINFINADATA');
   url.searchParams.set('columns', 'ALL');
   url.searchParams.set('filter', `(SECURITY_CODE="${code}")`);
   url.searchParams.set('pageNumber', '1');
@@ -229,6 +280,20 @@ export function pickRelatedForecast(forecasts, filing) {
   const candidates = samePeriodForecasts.length > 0 ? samePeriodForecasts : sameYearForecasts;
 
   return sortForecastCandidates(candidates)[0] ?? null;
+}
+
+export function pickRelatedFinanceReport(financeReports, filing) {
+  if (financeReports.length === 0) {
+    return null;
+  }
+
+  const targetDate = inferForecastReportDate(filing);
+  const targetYear = filing.reportDate.slice(0, 4);
+  const samePeriodReports = financeReports.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate));
+  const sameYearReports = financeReports.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear));
+  const candidates = samePeriodReports.length > 0 ? samePeriodReports : sameYearReports;
+
+  return [...candidates].sort((a, b) => String(b.NOTICE_DATE ?? '').localeCompare(String(a.NOTICE_DATE ?? '')))[0] ?? null;
 }
 
 function inferForecastReportDate(filing) {
@@ -266,8 +331,25 @@ function forecastPriority(item) {
   return priority;
 }
 
-function buildComponentScores(filing, forecasts, relatedForecast) {
+function buildComponentScores(filing, forecasts, relatedForecast, financeReport) {
   const filingScore = filing.source === 'cninfo' ? 90 : 50;
+  const sourceComponent = {
+    id: 'filing-source',
+    label: '公告来源可信度',
+    score: Math.round(filingScore),
+    status: 'positive',
+    detail: '公告列表来自巨潮资讯公开公告接口。',
+    data: [
+      { label: '公告标题', value: filing.title, source: '巨潮资讯' },
+      { label: '披露日期', value: filing.reportDate, source: '巨潮资讯' },
+      { label: '文件链接', value: filing.url, source: '巨潮资讯' },
+    ],
+  };
+
+  if (!relatedForecast && financeReport) {
+    return buildFinanceComponentScores(sourceComponent, financeReport);
+  }
+
   const forecastState = String(relatedForecast?.FORECAST_STATE ?? '');
   const increase = Number(relatedForecast?.INCREASE_JZ);
   const amountLow = relatedForecast?.PREDICT_AMT_LOWER;
@@ -348,7 +430,82 @@ function buildComponentScores(filing, forecasts, relatedForecast) {
   ];
 }
 
-function buildRiskFlags(componentScores, forecast) {
+function buildFinanceComponentScores(sourceComponent, financeReport) {
+  const revenueGrowth = toFiniteNumber(financeReport.TOTALOPERATEREVETZ);
+  const profitGrowth = toFiniteNumber(financeReport.PARENTNETPROFITTZ);
+  const deductedGrowth = toFiniteNumber(financeReport.KCFJCXSYJLRTZ);
+  const revenueQoq = toFiniteNumber(financeReport.YYZSRGDHBZC);
+  const profitQoq = toFiniteNumber(financeReport.NETPROFITRPHBZC);
+  const grossMargin = toFiniteNumber(financeReport.XSMLL);
+  const netMargin = toFiniteNumber(financeReport.XSJLL);
+  const roe = toFiniteNumber(financeReport.ROEJQ);
+  const cashRevenueRatio = toFiniteNumber(financeReport.JYXJLYYSR);
+  const operatingCashPerShare = toFiniteNumber(financeReport.MGJYXJJE);
+
+  const growthScore = averageFinite([
+    scoreGrowth(revenueGrowth),
+    scoreGrowth(profitGrowth),
+    scoreGrowth(deductedGrowth),
+    scoreGrowth(revenueQoq, 0.75),
+    scoreGrowth(profitQoq, 0.75),
+  ]);
+  const marginScore = averageFinite([
+    scoreLevel(grossMargin, 15, 35),
+    scoreLevel(netMargin, 5, 18),
+    scoreLevel(roe, 3, 10),
+  ]);
+  const cashScore = averageFinite([
+    scoreLevel(cashRevenueRatio, 8, 25),
+    scoreLevel(operatingCashPerShare, 0, 1),
+  ]);
+
+  return [
+    sourceComponent,
+    {
+      id: 'financial-growth',
+      label: '营收与利润增长',
+      score: roundNullableScore(growthScore),
+      status: scoreStatus(growthScore),
+      detail: '使用东方财富正式财报结构化主财务指标表，比较同比与报告期环比。',
+      data: [
+        { label: '报告期', value: String(financeReport.REPORT_DATE_NAME ?? financeReport.REPORT_TYPE ?? '-'), source: '东方财富财务指标' },
+        { label: '营业收入', value: formatMoney(financeReport.TOTALOPERATEREVE), source: '东方财富财务指标' },
+        { label: '营收同比', value: formatNullablePercent(revenueGrowth), source: '东方财富财务指标' },
+        { label: '营收环比', value: formatNullablePercent(revenueQoq), source: '东方财富财务指标' },
+        { label: '归母净利润', value: formatMoney(financeReport.PARENTNETPROFIT), source: '东方财富财务指标' },
+        { label: '归母净利润同比', value: formatNullablePercent(profitGrowth), source: '东方财富财务指标' },
+        { label: '归母净利润环比', value: formatNullablePercent(profitQoq), source: '东方财富财务指标' },
+      ],
+    },
+    {
+      id: 'profit-quality',
+      label: '利润质量',
+      score: roundNullableScore(marginScore),
+      status: scoreStatus(marginScore),
+      detail: '结合扣非净利润、毛利率、净利率和 ROE 判断利润含金量。',
+      data: [
+        { label: '扣非净利润', value: formatMoney(financeReport.KCFJCXSYJLR), source: '东方财富财务指标' },
+        { label: '扣非净利润同比', value: formatNullablePercent(deductedGrowth), source: '东方财富财务指标' },
+        { label: '毛利率', value: formatNullablePercent(grossMargin), source: '东方财富财务指标' },
+        { label: '净利率', value: formatNullablePercent(netMargin), source: '东方财富财务指标' },
+        { label: 'ROE', value: formatNullablePercent(roe), source: '东方财富财务指标' },
+      ],
+    },
+    {
+      id: 'cashflow-quality',
+      label: '现金流质量',
+      score: roundNullableScore(cashScore),
+      status: scoreStatus(cashScore),
+      detail: '用经营现金流收入比和每股经营现金流检查利润是否有现金流支撑。',
+      data: [
+        { label: '经营现金流/收入', value: formatNullablePercent(cashRevenueRatio), source: '东方财富财务指标' },
+        { label: '每股经营现金流', value: formatNullableNumber(operatingCashPerShare), source: '东方财富财务指标' },
+      ],
+    },
+  ];
+}
+
+function buildRiskFlags(componentScores, forecast, financeReport) {
   const flags = [];
   const missing = componentScores.filter((item) => item.status === 'missing');
 
@@ -385,11 +542,45 @@ function buildRiskFlags(componentScores, forecast) {
     });
   }
 
+  if (financeReport && toFiniteNumber(financeReport.PARENTNETPROFITTZ) !== null && toFiniteNumber(financeReport.PARENTNETPROFITTZ) < 0) {
+    flags.push({
+      id: 'profit-decline',
+      label: '归母净利润同比下滑',
+      severity: 'high',
+      value: `归母净利润同比 ${formatNullablePercent(financeReport.PARENTNETPROFITTZ)}`,
+      benchmark: '正式财报归母净利润同比小于 0% 视为核心风险',
+      source: '东方财富财务指标',
+    });
+  }
+
+  if (financeReport && toFiniteNumber(financeReport.NETPROFITRPHBZC) !== null && toFiniteNumber(financeReport.NETPROFITRPHBZC) < 0) {
+    flags.push({
+      id: 'profit-qoq-decline',
+      label: '归母净利润环比下滑',
+      severity: 'medium',
+      value: `归母净利润环比 ${formatNullablePercent(financeReport.NETPROFITRPHBZC)}`,
+      benchmark: '报告期环比为负，说明本期动能走弱，需要结合季节性复核',
+      source: '东方财富财务指标',
+    });
+  }
+
   return flags;
 }
 
-function buildDrivers(componentScores, forecast) {
+function buildDrivers(componentScores, forecast, financeReport) {
   const drivers = [];
+
+  if (Number(financeReport?.PARENTNETPROFITTZ) > 20) {
+    drivers.push(`归母净利润同比增长 ${formatNullablePercent(financeReport.PARENTNETPROFITTZ)}`);
+  }
+
+  if (Number(financeReport?.TOTALOPERATEREVETZ) > 10) {
+    drivers.push(`营业收入同比增长 ${formatNullablePercent(financeReport.TOTALOPERATEREVETZ)}`);
+  }
+
+  if (Number(financeReport?.JYXJLYYSR) > 15) {
+    drivers.push(`经营现金流/收入 ${formatNullablePercent(financeReport.JYXJLYYSR)}`);
+  }
 
   if (Number(forecast?.INCREASE_JZ) > 30) {
     drivers.push(`业绩预告同比增幅中值 ${formatNullablePercent(forecast.INCREASE_JZ)}`);
@@ -418,8 +609,8 @@ function summarizeScore(componentScores) {
   return Math.round(clamp(score - missingPenalty, 0, 100));
 }
 
-function deriveVerdict(score, riskFlags, forecast) {
-  if (!forecast) {
+function deriveVerdict(score, riskFlags, forecast, financeReport) {
+  if (!forecast && !financeReport) {
     return 'mixed';
   }
 
@@ -427,7 +618,7 @@ function deriveVerdict(score, riskFlags, forecast) {
     return 'below';
   }
 
-  if (score >= 75 && Number(forecast?.INCREASE_JZ) > 20) {
+  if (score >= 75 && (Number(forecast?.INCREASE_JZ) > 20 || Number(financeReport?.PARENTNETPROFITTZ) > 20)) {
     return 'above';
   }
 
@@ -438,7 +629,15 @@ function deriveVerdict(score, riskFlags, forecast) {
   return riskFlags.length > 0 ? 'mixed' : 'in_line';
 }
 
-function buildExpectationGap(forecast) {
+function buildExpectationGap(forecast, financeReport) {
+  if (!forecast && financeReport) {
+    return {
+      basis: 'reported_financials',
+      percent: toFiniteNumber(financeReport.PARENTNETPROFITTZ),
+      label: `正式财报结构化指标：归母净利润同比 ${formatNullablePercent(financeReport.PARENTNETPROFITTZ)}，营收同比 ${formatNullablePercent(financeReport.TOTALOPERATEREVETZ)}，归母净利润环比 ${formatNullablePercent(financeReport.NETPROFITRPHBZC)}`,
+    };
+  }
+
   if (!forecast) {
     return {
       basis: 'historical_trend',
@@ -454,14 +653,18 @@ function buildExpectationGap(forecast) {
   };
 }
 
-function buildSummary(security, filing, score, componentScores, riskFlags, forecast) {
+function buildSummary(security, filing, score, componentScores, riskFlags, forecast, financeReport) {
   const missing = componentScores.filter((item) => item.status === 'missing').map((item) => item.label);
   const scoreText = `综合评分 ${score}，其中 ${componentScores.map((item) => `${item.label}${item.score === null ? '缺失' : `${item.score}分`}`).join('、')}`;
   const riskText = riskFlags.length > 0
     ? `主要雷点：${riskFlags.map((flag) => `${flag.label}（${flag.value ?? '需复核'}）`).join('；')}。`
     : '暂未识别高优先级雷点。';
   const missingText = missing.length > 0 ? `缺失项：${missing.join('、')}，不使用演示数据替代。` : '';
-  const forecastText = forecast ? `业绩预告依据：${forecast.PREDICT_CONTENT ?? forecast.CHANGE_REASON_EXPLAIN ?? '-'}` : '未取得同年业绩预告结构化字段；缺少 Q2 环比、机构一致预期和完整财务表时，仅可做低置信度核验。';
+  const forecastText = forecast
+    ? `业绩预告依据：${forecast.PREDICT_CONTENT ?? forecast.CHANGE_REASON_EXPLAIN ?? '-'}`
+    : financeReport
+      ? `正式财报依据：营收同比 ${formatNullablePercent(financeReport.TOTALOPERATEREVETZ)}，归母净利润同比 ${formatNullablePercent(financeReport.PARENTNETPROFITTZ)}，归母净利润环比 ${formatNullablePercent(financeReport.NETPROFITRPHBZC)}，经营现金流/收入 ${formatNullablePercent(financeReport.JYXJLYYSR)}。`
+      : '未取得同年业绩预告结构化字段；缺少 Q2 环比、机构一致预期和完整财务表时，仅可做低置信度核验。';
 
   return `${security.name}${filing.title}：${scoreText}。${riskText}${missingText}${forecastText}`;
 }
@@ -596,6 +799,41 @@ function formatMoney(value) {
 function formatNullablePercent(value) {
   const number = Number(value);
   return Number.isFinite(number) ? `${number >= 0 ? '+' : ''}${number.toFixed(2)}%` : '未取得';
+}
+
+function formatNullableNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : '未取得';
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function averageFinite(values) {
+  const finite = values.filter((value) => Number.isFinite(value));
+  if (finite.length === 0) {
+    return null;
+  }
+  return finite.reduce((total, value) => total + value, 0) / finite.length;
+}
+
+function scoreGrowth(value, weight = 1) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return clamp(55 + value * weight, 20, 95);
+}
+
+function scoreLevel(value, weak, strong) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  if (strong === weak) {
+    return 60;
+  }
+  return clamp(35 + ((value - weak) / (strong - weak)) * 55, 20, 95);
 }
 
 function truncate(value, maxLength) {
