@@ -10,6 +10,7 @@ import {
   CircleDot,
   ClipboardList,
   Factory,
+  FileSearch,
   LineChart,
   Plus,
   RefreshCw,
@@ -38,6 +39,7 @@ import {
 } from 'recharts';
 import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
+import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -1408,6 +1410,7 @@ function ToolboxPage() {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [isPriceToolOpen, setIsPriceToolOpen] = useState(false);
+  const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem('alpha-desk-tools', JSON.stringify(tools));
@@ -1467,6 +1470,21 @@ function ToolboxPage() {
           </button>
         </article>
 
+        <article className="tool-card tool-card--builtin">
+          <button
+            className="tool-card__launch"
+            type="button"
+            onClick={() => setIsFinancialReportToolOpen((current) => !current)}
+            aria-expanded={isFinancialReportToolOpen}
+          >
+            <div>
+              <strong>财报分析</strong>
+              <span>内置工具 · 财报/业绩预告预期差与雷点识别</span>
+            </div>
+            <FileSearch size={18} aria-hidden="true" />
+          </button>
+        </article>
+
         {tools.map((tool) => (
           <article className="tool-card" key={tool.id}>
             <a href={tool.url} target="_blank" rel="noreferrer">
@@ -1481,6 +1499,7 @@ function ToolboxPage() {
       </div>
 
       {isPriceToolOpen ? <PriceDisciplinePanel /> : null}
+      {isFinancialReportToolOpen ? <FinancialReportPanel /> : null}
     </section>
   );
 }
