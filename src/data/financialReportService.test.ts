@@ -3,6 +3,7 @@ import {
   buildFinancialApiUrl,
   fetchFilingAnalysis,
   fetchFinancialFilings,
+  fetchFinancialMetrics,
   searchReportSecurities,
 } from './financialReportService';
 
@@ -108,6 +109,30 @@ describe('financialReportService', () => {
 
     await expect(fetchFinancialFilings({ code: '300750' }, fetcher)).rejects.toThrow('财报分析服务暂不可用：upstream failed');
   });
+
+  it('fetches financial metrics with optional peer comparison', async () => {
+    const requested: string[] = [];
+    const fetcher = async (input: string) => {
+      requested.push(input);
+      return {
+        ok: true,
+        json: async () => ({
+          security: { code: '300750', name: '宁德时代', industry: '电池', exchange: 'SZSE' },
+          metricCatalog: [{ id: 'netProfit', label: '归母净利润', unit: '元', category: '成长', chartType: 'bar' }],
+          periods: ['2026一季报'],
+          series: { netProfit: [{ period: '2026一季报', reportDate: '2026-03-31', value: 20737710000, yoy: 48.52, qoq: 9.38 }] },
+          peers: [],
+          industryBenchmark: { netProfit: [{ period: '2026一季报', median: null, max: null, min: null }] },
+        }),
+      };
+    };
+
+    const metrics = await fetchFinancialMetrics({ code: '300750', period: 'quarterly', includePeers: true, peerCount: 5 }, fetcher);
+
+    expect(requested[0]).toBe('/api/financial-metrics?code=300750&period=quarterly&includePeers=true&peerCount=5');
+    expect(metrics.series.netProfit[0].yoy).toBe(48.52);
+  });
+
 
   it('explains that GitHub Pages needs a deployed API when the endpoint is missing', async () => {
     const fetcher = async () => ({

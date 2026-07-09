@@ -55,7 +55,7 @@ export type FinancialReportInput = {
 };
 
 export type ExpectationGap = {
-  basis: 'forecast_net_profit' | 'guidance_range' | 'historical_trend';
+  basis: 'forecast_net_profit' | 'guidance_range' | 'historical_trend' | 'reported_financials';
   percent: number | null;
   label: string;
 };
@@ -78,6 +78,63 @@ export type ComponentScore = {
   data: Array<{ label: string; value: string; source: string }>;
 };
 
+export type FinancialMetricPeriod = 'quarterly' | 'annual';
+
+export type FinancialMetricCatalogItem = {
+  id: string;
+  label: string;
+  unit: string;
+  category: string;
+  chartType: 'line' | 'bar';
+};
+
+export type FinancialMetricPoint = {
+  period: string;
+  reportDate: string;
+  value: number | null;
+  yoy: number | null;
+  qoq: number | null;
+};
+
+export type FinancialMetricBenchmarkPoint = {
+  period: string;
+  median: number | null;
+  max: number | null;
+  min: number | null;
+};
+
+export type FinancialMetricPeer = {
+  security: Security;
+  series: Record<string, FinancialMetricPoint[]>;
+};
+
+export type FinancialMetricsResult = {
+  security: Security;
+  metricCatalog: FinancialMetricCatalogItem[];
+  periods: string[];
+  series: Record<string, FinancialMetricPoint[]>;
+  peers: FinancialMetricPeer[];
+  industryBenchmark: Record<string, FinancialMetricBenchmarkPoint[]>;
+};
+
+export type ScoreBreakdown = {
+  formula: string;
+  componentAverage: number;
+  missingPenalty: number;
+  highRiskPenalty: number;
+  finalScore: number;
+  rows: Array<{
+    id: string;
+    label: string;
+    score: number | null;
+    weight: number;
+    status: ComponentScore['status'];
+    evidence: string;
+    rule: string;
+  }>;
+  waterfall: Array<{ label: string; value: number }>;
+};
+
 export type FilingAnalysisResult = {
   security: Security;
   filing: FilingSummary;
@@ -87,6 +144,7 @@ export type FilingAnalysisResult = {
   bullishDrivers: string[];
   riskFlags: RiskFlag[];
   componentScores?: ComponentScore[];
+  scoreBreakdown?: ScoreBreakdown;
   methodology?: {
     engine: string;
     rules: string[];

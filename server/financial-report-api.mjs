@@ -6,6 +6,32 @@ const CNINFO_REPORT_CATEGORIES = [
   'category_sjdbg_szsh',
   'category_yjygjxz_szsh',
 ];
+const METRIC_CATALOG = [
+  { id: 'revenue', label: '营业收入', unit: '元', category: '成长', chartType: 'bar', source: 'main', valueField: 'TOTALOPERATEREVE', yoyField: 'TOTALOPERATEREVETZ', qoqField: 'YYZSRGDHBZC' },
+  { id: 'netProfit', label: '归母净利润', unit: '元', category: '成长', chartType: 'bar', source: 'main', valueField: 'PARENTNETPROFIT', yoyField: 'PARENTNETPROFITTZ', qoqField: 'NETPROFITRPHBZC' },
+  { id: 'deductedNetProfit', label: '扣非净利润', unit: '元', category: '成长', chartType: 'bar', source: 'main', valueField: 'KCFJCXSYJLR', yoyField: 'KCFJCXSYJLRTZ' },
+  { id: 'grossMargin', label: '毛利率', unit: '%', category: '盈利', chartType: 'line', source: 'main', valueField: 'XSMLL' },
+  { id: 'netMargin', label: '净利率', unit: '%', category: '盈利', chartType: 'line', source: 'main', valueField: 'XSJLL' },
+  { id: 'roe', label: 'ROE', unit: '%', category: '盈利', chartType: 'line', source: 'main', valueField: 'ROEJQ' },
+  { id: 'cashRevenueRatio', label: '经营现金流/收入', unit: '%', category: '现金流', chartType: 'line', source: 'main', valueField: 'JYXJLYYSR' },
+  { id: 'operatingCashPerShare', label: '每股经营现金流', unit: '元/股', category: '现金流', chartType: 'line', source: 'main', valueField: 'MGJYXJJE' },
+  { id: 'operatingCashFlow', label: '经营现金流净额', unit: '元', category: '现金流', chartType: 'bar', source: 'cashflow', valueField: 'NETCASH_OPERATE' },
+  { id: 'debtAssetRatio', label: '资产负债率', unit: '%', category: '资产负债', chartType: 'line', source: 'balance', valueField: 'DEBT_ASSET_RATIO' },
+  { id: 'monetaryFunds', label: '货币资金', unit: '元', category: '资产负债', chartType: 'bar', source: 'balance', valueField: 'MONETARYFUNDS', yoyField: 'MONETARYFUNDS_RATIO' },
+  { id: 'accountsReceivable', label: '应收账款', unit: '元', category: '资产负债', chartType: 'bar', source: 'balance', valueField: 'ACCOUNTS_RECE', yoyField: 'ACCOUNTS_RECE_RATIO' },
+  { id: 'inventory', label: '存货', unit: '元', category: '资产负债', chartType: 'bar', source: 'balance', valueField: 'INVENTORY', yoyField: 'INVENTORY_RATIO' },
+  { id: 'eps', label: '基本 EPS', unit: '元/股', category: '每股指标', chartType: 'line', source: 'main', valueField: 'EPSJB' },
+  { id: 'bps', label: '每股净资产', unit: '元/股', category: '每股指标', chartType: 'line', source: 'main', valueField: 'BPS' },
+  { id: 'undistributedProfitPerShare', label: '每股未分配利润', unit: '元/股', category: '每股指标', chartType: 'line', source: 'main', valueField: 'MGWFPLR' },
+];
+const PEER_LIST_URL =
+  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f20&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f20,f100';
+const INDUSTRY_BOARD_FALLBACKS = [
+  { pattern: /电池/, boardCode: 'BK1092' },
+  { pattern: /半导体/, boardCode: 'BK1036' },
+  { pattern: /通信设备/, boardCode: 'BK0448' },
+  { pattern: /光纤/, boardCode: 'BK1660' },
+];
 
 export async function handleFinancialReportRequest(request) {
   try {
@@ -39,6 +65,14 @@ export async function handleFinancialReportRequest(request) {
       const type = url.searchParams.get('type') ?? 'all';
       const filings = await getFilings(code, type);
       return jsonResponse({ filings });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/financial-metrics') {
+      const code = (url.searchParams.get('code') ?? '').trim();
+      const period = url.searchParams.get('period') === 'annual' ? 'annual' : 'quarterly';
+      const includePeers = url.searchParams.get('includePeers') === 'true';
+      const peerCount = clamp(Math.round(Number(url.searchParams.get('peerCount') ?? 5)), 0, 5);
+      return jsonResponse(await getFinancialMetrics(code, { period, includePeers, peerCount }));
     }
 
     if (request.method === 'POST' && url.pathname === '/api/filings/analyze') {
@@ -217,6 +251,7 @@ async function buildRealAnalysis(code, filingId) {
   const riskFlags = buildRiskFlags(componentScores, relatedForecast, relatedFinanceReport);
   const bullishDrivers = buildDrivers(componentScores, relatedForecast, relatedFinanceReport);
   const score = summarizeScore(componentScores);
+  const scoreBreakdown = summarizeScoreBreakdown(componentScores, riskFlags);
   const verdict = deriveVerdict(score, riskFlags, relatedForecast, relatedFinanceReport);
 
   return {
@@ -228,6 +263,7 @@ async function buildRealAnalysis(code, filingId) {
     bullishDrivers,
     riskFlags,
     componentScores,
+    scoreBreakdown: { ...scoreBreakdown, finalScore: score },
     methodology: {
       engine: '规则引擎 v1（未接入 AI 模型）',
       rules: [
@@ -266,6 +302,213 @@ async function fetchEastmoneyMainFinance(code) {
 
   const payload = await fetchJson(url);
   return payload.result?.data ?? [];
+}
+
+async function fetchEastmoneyBalanceSheets(code) {
+  const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
+  url.searchParams.set('reportName', 'RPT_DMSK_FN_BALANCE');
+  url.searchParams.set('columns', 'ALL');
+  url.searchParams.set('filter', `(SECURITY_CODE="${code}")`);
+  url.searchParams.set('pageNumber', '1');
+  url.searchParams.set('pageSize', '100');
+
+  const payload = await fetchJson(url);
+  return payload.result?.data ?? [];
+}
+
+async function fetchEastmoneyCashflows(code) {
+  const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
+  url.searchParams.set('reportName', 'RPT_DMSK_FN_CASHFLOW');
+  url.searchParams.set('columns', 'ALL');
+  url.searchParams.set('filter', `(SECURITY_CODE="${code}")`);
+  url.searchParams.set('pageNumber', '1');
+  url.searchParams.set('pageSize', '100');
+
+  const payload = await fetchJson(url);
+  return payload.result?.data ?? [];
+}
+
+async function getFinancialMetrics(code, options) {
+  const [security] = await searchSecurities(code);
+  if (!security) {
+    throw new Error('未找到证券数据，无法加载财务指标');
+  }
+
+  const current = await buildFinancialMetricPayload(security, options.period);
+  const peerSecurities = options.includePeers ? await findPeerSecurities(security.code, options.peerCount) : [];
+  const peers = [];
+
+  for (const peer of peerSecurities) {
+    const peerPayload = await buildFinancialMetricPayload(peer, options.period).catch(() => null);
+    if (peerPayload?.periods.length) {
+      peers.push({
+        security: peerPayload.security,
+        series: peerPayload.series,
+      });
+    }
+  }
+
+  return {
+    ...current,
+    peers,
+    industryBenchmark: buildIndustryBenchmark(current.periods, peers),
+  };
+}
+
+async function buildFinancialMetricPayload(security, period) {
+  const [mainRows, balanceRows, cashflowRows] = await Promise.all([
+    fetchEastmoneyMainFinance(security.code),
+    fetchEastmoneyBalanceSheets(security.code).catch(() => []),
+    fetchEastmoneyCashflows(security.code).catch(() => []),
+  ]);
+  const rows = mergeFinancialRows(mainRows, balanceRows, cashflowRows)
+    .filter((row) => matchesMetricPeriod(row, period))
+    .sort((a, b) => String(a.REPORT_DATE ?? '').localeCompare(String(b.REPORT_DATE ?? '')));
+  const periods = rows.map((row) => getFinancialPeriodLabel(row));
+
+  return {
+    security,
+    metricCatalog: METRIC_CATALOG.map(({ source, valueField, yoyField, qoqField, ...metric }) => metric),
+    periods,
+    series: buildMetricSeries(rows),
+  };
+}
+
+function mergeFinancialRows(mainRows, balanceRows, cashflowRows) {
+  const rowsByDate = new Map();
+
+  for (const row of [...mainRows, ...balanceRows, ...cashflowRows]) {
+    const date = normalizeReportDate(row.REPORT_DATE ?? row.REPORTDATE);
+    if (!date) continue;
+    rowsByDate.set(date, { ...(rowsByDate.get(date) ?? {}), ...row, REPORT_DATE: date });
+  }
+
+  return [...rowsByDate.values()];
+}
+
+function buildMetricSeries(rows) {
+  const series = Object.fromEntries(METRIC_CATALOG.map((metric) => [metric.id, []]));
+
+  for (const metric of METRIC_CATALOG) {
+    const points = rows.map((row) => ({
+      period: getFinancialPeriodLabel(row),
+      reportDate: normalizeReportDate(row.REPORT_DATE ?? row.REPORTDATE),
+      value: toFiniteNumber(row[metric.valueField]),
+      yoy: toFiniteNumber(metric.yoyField ? row[metric.yoyField] : null),
+      qoq: toFiniteNumber(metric.qoqField ? row[metric.qoqField] : null),
+    }));
+
+    for (let index = 0; index < points.length; index += 1) {
+      if (points[index].qoq === null && index > 0) {
+        points[index].qoq = calculateChangePercent(points[index - 1].value, points[index].value);
+      }
+    }
+
+    series[metric.id] = points;
+  }
+
+  return series;
+}
+
+function matchesMetricPeriod(row, period) {
+  const label = `${row.REPORT_DATE_NAME ?? ''}${row.REPORT_TYPE ?? ''}${row.DATEMMDD ?? ''}`;
+  const date = normalizeReportDate(row.REPORT_DATE ?? row.REPORTDATE);
+  const isAnnual = /年报/.test(label) || /-12-31$/.test(date);
+  return period === 'annual' ? isAnnual : !isAnnual;
+}
+
+async function findPeerSecurities(code, peerCount) {
+  if (peerCount <= 0) {
+    return [];
+  }
+
+  const payload = await fetchJson(PEER_LIST_URL);
+  const rows = payload.data?.diff ?? [];
+  const current = rows.find((row) => String(row.f12) === code);
+  const industry = current?.f100;
+  if (!industry) {
+    return [];
+  }
+
+  const exactPeers = rows
+    .filter((row) => row.f100 === industry && String(row.f12) !== code && /^\d{6}$/.test(String(row.f12)))
+    .sort((a, b) => Number(b.f20 ?? 0) - Number(a.f20 ?? 0))
+    .map((row) => mapPeerRow(row, industry));
+
+  const boardPeers = exactPeers.length >= peerCount
+    ? []
+    : await fetchBoardPeerSecurities(industry, code).catch(() => []);
+
+  return uniqueSecurities([...exactPeers, ...boardPeers])
+    .filter((security) => security.code !== code)
+    .slice(0, peerCount);
+}
+
+async function fetchBoardPeerSecurities(industry, code) {
+  const boardCode = INDUSTRY_BOARD_FALLBACKS.find((item) => item.pattern.test(String(industry)))?.boardCode;
+  if (!boardCode) {
+    return [];
+  }
+
+  const url = new URL('https://push2.eastmoney.com/api/qt/clist/get');
+  url.searchParams.set('pn', '1');
+  url.searchParams.set('pz', '80');
+  url.searchParams.set('po', '1');
+  url.searchParams.set('np', '1');
+  url.searchParams.set('ut', EASTMONEY_TOKEN);
+  url.searchParams.set('fltt', '2');
+  url.searchParams.set('invt', '2');
+  url.searchParams.set('fid', 'f20');
+  url.searchParams.set('fs', `b:${boardCode}`);
+  url.searchParams.set('fields', 'f12,f14,f20,f100');
+
+  const payload = await fetchJson(url);
+  return (payload.data?.diff ?? [])
+    .filter((row) => String(row.f12) !== code && /^\d{6}$/.test(String(row.f12)))
+    .sort((a, b) => Number(b.f20 ?? 0) - Number(a.f20 ?? 0))
+    .map((row) => mapPeerRow(row, String(row.f100 ?? industry)));
+}
+
+function mapPeerRow(row, fallbackIndustry) {
+  return {
+    code: String(row.f12),
+    name: String(row.f14 ?? row.f12),
+    industry: String(row.f100 ?? fallbackIndustry),
+    exchange: getExchangeByCode(String(row.f12)),
+  };
+}
+
+function uniqueSecurities(securities) {
+  const seen = new Set();
+  return securities.filter((security) => {
+    if (seen.has(security.code)) {
+      return false;
+    }
+
+    seen.add(security.code);
+    return true;
+  });
+}
+
+function buildIndustryBenchmark(periods, peers) {
+  const benchmark = {};
+
+  for (const metric of METRIC_CATALOG) {
+    benchmark[metric.id] = periods.map((period) => {
+      const values = peers
+        .map((peer) => peer.series?.[metric.id]?.find((point) => point.period === period)?.value)
+        .filter((value) => Number.isFinite(value));
+
+      return {
+        period,
+        median: median(values),
+        max: values.length ? Math.max(...values) : null,
+        min: values.length ? Math.min(...values) : null,
+      };
+    });
+  }
+
+  return benchmark;
 }
 
 export function pickRelatedForecast(forecasts, filing) {
@@ -609,6 +852,40 @@ function summarizeScore(componentScores) {
   return Math.round(clamp(score - missingPenalty, 0, 100));
 }
 
+export function summarizeScoreBreakdown(componentScores, riskFlags) {
+  const scored = componentScores.filter((item) => Number.isFinite(item.score));
+  const componentAverage = scored.length
+    ? Math.round(scored.reduce((total, item) => total + Number(item.score), 0) / scored.length)
+    : 0;
+  const missingCount = componentScores.filter((item) => item.status === 'missing').length;
+  const missingPenalty = missingCount * 6;
+  const highRiskPenalty = riskFlags.filter((flag) => flag.severity === 'high').length * 8;
+  const finalScore = Math.round(clamp(componentAverage - missingPenalty - highRiskPenalty, 0, 100));
+
+  return {
+    formula: '综合评分 = 分项均值 - 缺失项惩罚 - 高风险惩罚',
+    componentAverage,
+    missingPenalty,
+    highRiskPenalty,
+    finalScore,
+    rows: componentScores.map((item) => ({
+      id: item.id,
+      label: item.label,
+      score: Number.isFinite(item.score) ? Math.round(Number(item.score)) : null,
+      weight: scored.length ? Number((1 / scored.length).toFixed(2)) : 0,
+      status: item.status,
+      evidence: (item.data ?? []).map((data) => `${data.label}=${data.value}`).join('；') || item.detail || '未取得',
+      rule: item.detail ?? '按公开结构化字段评分',
+    })),
+    waterfall: [
+      { label: '分项均值', value: componentAverage },
+      { label: '缺失项惩罚', value: -missingPenalty },
+      { label: '高风险惩罚', value: -highRiskPenalty },
+      { label: '综合评分', value: finalScore },
+    ],
+  };
+}
+
 function deriveVerdict(score, riskFlags, forecast, financeReport) {
   if (!forecast && !financeReport) {
     return 'mixed';
@@ -801,6 +1078,23 @@ function formatNullablePercent(value) {
   return Number.isFinite(number) ? `${number >= 0 ? '+' : ''}${number.toFixed(2)}%` : '未取得';
 }
 
+function normalizeReportDate(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function getFinancialPeriodLabel(row) {
+  if (row.REPORT_DATE_NAME) return String(row.REPORT_DATE_NAME);
+  if (row.DATATYPE) return String(row.DATATYPE);
+  const date = normalizeReportDate(row.REPORT_DATE ?? row.REPORTDATE);
+  const year = date.slice(0, 4);
+  if (date.endsWith('-03-31')) return `${year}一季报`;
+  if (date.endsWith('-06-30')) return `${year}中报`;
+  if (date.endsWith('-09-30')) return `${year}三季报`;
+  if (date.endsWith('-12-31')) return `${year}年报`;
+  return date || '未披露';
+}
+
 function formatNullableNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(2) : '未取得';
@@ -834,6 +1128,22 @@ function scoreLevel(value, weak, strong) {
     return 60;
   }
   return clamp(35 + ((value - weak) / (strong - weak)) * 55, 20, 95);
+}
+
+function calculateChangePercent(previous, current) {
+  if (!Number.isFinite(previous) || !Number.isFinite(current) || Number(previous) === 0) {
+    return null;
+  }
+  return Number((((Number(current) - Number(previous)) / Math.abs(Number(previous))) * 100).toFixed(2));
+}
+
+function median(values) {
+  if (!values.length) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function truncate(value, maxLength) {

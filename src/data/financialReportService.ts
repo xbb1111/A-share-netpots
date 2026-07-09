@@ -1,4 +1,11 @@
-import type { FilingAnalysisResult, FilingSummary, FilingType, Security } from './financialReports';
+import type {
+  FilingAnalysisResult,
+  FilingSummary,
+  FilingType,
+  FinancialMetricPeriod,
+  FinancialMetricsResult,
+  Security,
+} from './financialReports';
 
 type JsonResponse = Pick<Response, 'ok' | 'json'>;
 type ReportFetcher = (input: string, init?: RequestInit) => Promise<JsonResponse>;
@@ -15,6 +22,13 @@ export type FilingQuery = {
 export type FilingAnalysisRequest = {
   code: string;
   filingId: string;
+};
+
+export type FinancialMetricsQuery = {
+  code: string;
+  period: FinancialMetricPeriod;
+  includePeers?: boolean;
+  peerCount?: number;
 };
 
 export async function searchReportSecurities(
@@ -73,6 +87,22 @@ export async function fetchFilingAnalysis(
   }
 
   return payload.analysis;
+}
+
+export async function fetchFinancialMetrics(
+  query: FinancialMetricsQuery,
+  fetcher: ReportFetcher = fetch,
+): Promise<FinancialMetricsResult> {
+  const params = new URLSearchParams();
+  params.set('code', query.code.trim());
+  params.set('period', query.period);
+
+  if (query.includePeers) {
+    params.set('includePeers', 'true');
+    params.set('peerCount', String(query.peerCount ?? 5));
+  }
+
+  return getJson<FinancialMetricsResult>(buildFinancialApiUrl(`/api/financial-metrics?${params.toString()}`), fetcher);
 }
 
 export function buildFinancialApiUrl(path: string, apiBase = FINANCIAL_API_BASE, hostname = getCurrentHostname()): string {

@@ -1758,6 +1758,294 @@ h2 {
   cursor: pointer;
 }
 
+.financial-metrics-panel,
+.score-breakdown {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.5);
+  padding: 13px;
+}
+
+.financial-metrics-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.financial-metrics-panel__header span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.financial-metrics-panel__header strong {
+  display: block;
+  margin-top: 3px;
+  color: #eef5f9;
+  font-size: 15px;
+}
+
+.metric-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.segmented-control {
+  display: inline-grid;
+  grid-auto-flow: column;
+  padding: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 7px;
+  background: rgba(16, 24, 32, 0.62);
+}
+
+.segmented-control__item,
+.metric-chip {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9eb0be;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segmented-control__item {
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+.segmented-control__item--active,
+.metric-chip--active {
+  background: rgba(214, 170, 92, 0.14);
+  color: #f3d596;
+}
+
+.peer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #b7c8d6;
+  font-size: 12px;
+}
+
+.peer-toggle input {
+  accent-color: var(--gold);
+}
+
+.metric-picker {
+  display: grid;
+  gap: 9px;
+}
+
+.metric-picker > div {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.metric-picker > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 28px;
+}
+
+.metric-picker > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.metric-chip {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(16, 24, 32, 0.52);
+}
+
+.metric-chart-wrap {
+  min-height: 340px;
+  padding: 10px 4px 4px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 7px;
+  background: rgba(5, 12, 18, 0.45);
+}
+
+.metric-tooltip {
+  display: grid;
+  gap: 5px;
+  max-width: 320px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.96);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+}
+
+.metric-tooltip strong {
+  color: #eef5f9;
+  font-size: 12px;
+}
+
+.metric-tooltip span {
+  color: #a6b4c0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.metric-data-table,
+.score-breakdown__table {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 7px;
+}
+
+.metric-data-table__head,
+.metric-data-table__row,
+.score-breakdown__table-head,
+.score-breakdown__table-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.metric-data-table__head,
+.metric-data-table__row {
+  grid-template-columns: 1.2fr repeat(4, minmax(80px, 1fr));
+}
+
+.metric-data-table__head,
+.score-breakdown__table-head {
+  border-top: 0;
+  background: rgba(16, 24, 32, 0.68);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.metric-data-table__row span,
+.score-breakdown__table-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #dbe5ee;
+  font-size: 12px;
+}
+
+.score-formula {
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 170, 92, 0.18);
+  border-radius: 7px;
+  background: rgba(214, 170, 92, 0.07);
+  color: #f3d596;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.score-breakdown__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.score-breakdown__summary div {
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 7px;
+  background: rgba(16, 24, 32, 0.48);
+}
+
+.score-breakdown__summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.score-breakdown__summary strong {
+  display: block;
+  margin-top: 4px;
+  color: #eef5f9;
+  font-size: 18px;
+}
+
+.score-breakdown__table-head,
+.score-breakdown__table-row {
+  grid-template-columns: 1fr 72px 64px 2fr;
+}
+
+.score-breakdown__table-row small,
+.score-breakdown__table-row strong {
+  display: block;
+}
+
+.score-breakdown__table-row strong {
+  color: #eef5f9;
+  font-size: 12px;
+}
+
+.score-breakdown__table-row small {
+  margin-top: 3px;
+  color: #8fa0ac;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.score-breakdown__table-row--negative > span:nth-child(2),
+.score-breakdown__table-row--missing > span:nth-child(2) {
+  color: var(--green);
+}
+
+.score-breakdown__table-row--positive > span:nth-child(2) {
+  color: var(--red);
+}
+
+.score-waterfall {
+  display: grid;
+  gap: 7px;
+}
+
+.score-waterfall__row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 52px;
+  gap: 10px;
+  align-items: center;
+  color: #a6b4c0;
+  font-size: 12px;
+}
+
+.score-waterfall__row > div {
+  min-height: 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  overflow: hidden;
+}
+
+.score-waterfall__bar {
+  display: block;
+  height: 12px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(214, 170, 92, 0.86), rgba(242, 214, 155, 0.95));
+}
+
+.score-waterfall__bar--negative {
+  background: linear-gradient(90deg, rgba(199, 100, 109, 0.86), rgba(240, 183, 189, 0.95));
+}
+
+.score-waterfall__row strong {
+  color: #eef5f9;
+  text-align: right;
+}
+
 @media (max-width: 1180px) {
   .terminal-shell {
     grid-template-columns: 1fr;
@@ -1797,8 +2085,24 @@ h2 {
   .financial-report-tool__layout,
   .analysis-result,
   .analysis-columns,
-  .component-score dl {
+  .component-score dl,
+  .score-breakdown__summary {
     grid-template-columns: 1fr;
+  }
+
+  .metric-data-table,
+  .score-breakdown__table {
+    overflow-x: auto;
+  }
+
+  .metric-data-table__head,
+  .metric-data-table__row {
+    min-width: 680px;
+  }
+
+  .score-breakdown__table-head,
+  .score-breakdown__table-row {
+    min-width: 760px;
   }
 
   .industry-table--wide,
