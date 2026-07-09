@@ -1561,7 +1561,7 @@ export default function App() {
           <div className="brand__mark">A</div>
           <div>
             <strong>Alpha Desk</strong>
-            <span>A 股投研工作台</span>
+            <span>百万手点火</span>
           </div>
         </div>
         <nav className="nav-list">
