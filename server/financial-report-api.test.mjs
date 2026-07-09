@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  handleFinancialReportRequest,
   normalizeFilingType,
   pickRelatedForecast,
   searchSecurities,
@@ -34,5 +35,31 @@ describe('financial-report-api helpers', () => {
         { reportDate: '2026-07-08' },
       ),
     ).toBeNull();
+  });
+
+  it('handles CORS preflight with the shared fetch entrypoint', async () => {
+    const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/filings', { method: 'OPTIONS' }));
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET,POST,OPTIONS');
+  });
+
+  it('handles security search through the shared fetch entrypoint', async () => {
+    const fetcher = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({ QuotationCodeTable: { Data: [{ Code: '603929', Name: '亚翔集成' }] } }),
+    });
+
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/securities/search?q=603929'));
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.securities[0]).toEqual({ code: '603929', name: '亚翔集成', industry: '公开搜索', exchange: 'SSE' });
+    } finally {
+      globalThis.fetch = fetcher;
+    }
   });
 });

@@ -1,0 +1,32 @@
+name: Deploy Financial Report API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - server/financial-report-api.mjs
+      - server/financial-report-worker.mjs
+      - wrangler.toml
+      - package.json
+      - package-lock.json
+      - .github/workflows/financial-report-worker.yml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run worker:deploy

@@ -1,0 +1,4 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "a-share-financial-report-api"
+main = "server/financial-report-worker.mjs"
+compatibility_date = "2026-07-09"

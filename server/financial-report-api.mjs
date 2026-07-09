@@ -1,25 +1,15 @@
-import http from 'node:http';
-import { fileURLToPath } from 'node:url';
-
-const PORT = Number(process.env.FINANCIAL_REPORT_API_PORT ?? 8787);
 const EASTMONEY_TOKEN = 'D43BF722C8E33A6';
 
-const server = http.createServer(async (request, response) => {
+export async function handleFinancialReportRequest(request) {
   try {
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-
     if (request.method === 'OPTIONS') {
-      response.writeHead(204);
-      response.end();
-      return;
+      return withCors(new Response(null, { status: 204 }));
     }
 
-    const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
+    const url = new URL(request.url);
 
     if (request.method === 'GET' && url.pathname === '/') {
-      sendJson(response, {
+      return jsonResponse({
         name: 'A股财报分析 API',
         status: 'ok',
         frontend: 'http://localhost:5173/#toolbox',
@@ -30,64 +20,56 @@ const server = http.createServer(async (request, response) => {
         ],
         note: '8787 是后端 API 端口，正式工具界面请打开 frontend 地址。',
       });
-      return;
     }
 
     if (request.method === 'GET' && url.pathname === '/api/securities/search') {
       const query = (url.searchParams.get('q') ?? '').trim();
-      sendJson(response, { securities: await searchSecurities(query) });
-      return;
+      return jsonResponse({ securities: await searchSecurities(query) });
     }
 
     if (request.method === 'GET' && url.pathname === '/api/filings') {
       const code = (url.searchParams.get('code') ?? '').trim();
       const type = url.searchParams.get('type') ?? 'all';
       const filings = await getFilings(code, type);
-      sendJson(response, { filings });
-      return;
+      return jsonResponse({ filings });
     }
 
     if (request.method === 'POST' && url.pathname === '/api/filings/analyze') {
-      const body = await readJson(request);
+      const body = await readRequestJson(request);
       const code = String(body.code ?? '').trim();
       const filingId = String(body.filingId ?? '').trim();
       const analysis = await buildRealAnalysis(code, filingId);
-      sendJson(response, { analysis });
-      return;
+      return jsonResponse({ analysis });
     }
 
-    sendJson(response, { message: 'Not found' }, 404);
+    return jsonResponse({ message: 'Not found' }, 404);
   } catch (error) {
-    sendJson(response, { message: error instanceof Error ? error.message : 'Unknown API error' }, 500);
+    return jsonResponse({ message: error instanceof Error ? error.message : 'Unknown API error' }, 500);
   }
-});
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  server.listen(PORT, () => {
-    console.log(`Financial report API listening on http://localhost:${PORT}`);
-  });
 }
 
-function sendJson(response, payload, status = 200) {
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  response.end(JSON.stringify(payload));
+function jsonResponse(payload, status = 200) {
+  return withCors(
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }),
+  );
 }
 
-function readJson(request) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    request.on('data', (chunk) => {
-      body += chunk;
-    });
-    request.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
-    request.on('error', reject);
-  });
+function withCors(response) {
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  response.headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  return response;
+}
+
+async function readRequestJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
 }
 
 export async function searchSecurities(query) {

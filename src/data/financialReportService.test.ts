@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildFinancialApiUrl,
   fetchFilingAnalysis,
   fetchFinancialFilings,
   searchReportSecurities,
 } from './financialReportService';
 
 describe('financialReportService', () => {
+  it('builds same-origin API URLs by default and supports configured API hosts', () => {
+    expect(buildFinancialApiUrl('/api/filings?code=300750')).toBe('/api/filings?code=300750');
+    expect(buildFinancialApiUrl('/api/filings?code=300750', 'https://api.example.com')).toBe(
+      'https://api.example.com/api/filings?code=300750',
+    );
+  });
+
   it('searches securities through the financial report API', async () => {
     const requested: string[] = [];
     const fetcher = async (input: string) => {
@@ -96,5 +104,16 @@ describe('financialReportService', () => {
     });
 
     await expect(fetchFinancialFilings({ code: '300750' }, fetcher)).rejects.toThrow('财报分析服务暂不可用：upstream failed');
+  });
+
+  it('explains that GitHub Pages needs a deployed API when the endpoint is missing', async () => {
+    const fetcher = async () => ({
+      ok: false,
+      json: async () => ({}),
+    });
+
+    await expect(fetchFinancialFilings({ code: '300750' }, fetcher)).rejects.toThrow(
+      '线上静态页面未连接财报分析 API',
+    );
   });
 });
