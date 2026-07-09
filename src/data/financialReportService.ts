@@ -3,6 +3,7 @@ import type { FilingAnalysisResult, FilingSummary, FilingType, Security } from '
 type JsonResponse = Pick<Response, 'ok' | 'json'>;
 type ReportFetcher = (input: string, init?: RequestInit) => Promise<JsonResponse>;
 const FINANCIAL_API_BASE = import.meta.env.VITE_FINANCIAL_REPORT_API_BASE as string | undefined;
+const GITHUB_PAGES_FINANCIAL_API_BASE = 'https://a-share-financial-report-api.2561340168.workers.dev';
 
 export type FilingQuery = {
   code: string;
@@ -74,12 +75,14 @@ export async function fetchFilingAnalysis(
   return payload.analysis;
 }
 
-export function buildFinancialApiUrl(path: string, apiBase = FINANCIAL_API_BASE): string {
-  if (!apiBase?.trim()) {
+export function buildFinancialApiUrl(path: string, apiBase = FINANCIAL_API_BASE, hostname = getCurrentHostname()): string {
+  const resolvedApiBase = apiBase?.trim() || getDefaultApiBase(hostname);
+
+  if (!resolvedApiBase) {
     return path;
   }
 
-  return `${apiBase.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${resolvedApiBase.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 async function getJson<T>(url: string, fetcher: ReportFetcher, init?: RequestInit): Promise<T> {
@@ -97,8 +100,16 @@ async function getJson<T>(url: string, fetcher: ReportFetcher, init?: RequestIni
 
 function getStaticHostingHint() {
   if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io') && !FINANCIAL_API_BASE) {
-    return '线上静态页面未连接财报分析 API。GitHub Pages 不能运行 Node 后端，请部署 API 后配置 VITE_FINANCIAL_REPORT_API_BASE。';
+    return '线上静态页面未连接财报分析 API。请检查 Cloudflare Worker 是否可访问，或配置 VITE_FINANCIAL_REPORT_API_BASE 覆盖默认 API 地址。';
   }
 
   return '线上静态页面未连接财报分析 API；本地请确认 npm run api 已启动。';
+}
+
+function getDefaultApiBase(hostname: string | undefined) {
+  return hostname?.endsWith('github.io') ? GITHUB_PAGES_FINANCIAL_API_BASE : '';
+}
+
+function getCurrentHostname() {
+  return typeof window !== 'undefined' ? window.location.hostname : undefined;
 }

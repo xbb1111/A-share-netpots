@@ -12,6 +12,9 @@ describe('financialReportService', () => {
     expect(buildFinancialApiUrl('/api/filings?code=300750', 'https://api.example.com')).toBe(
       'https://api.example.com/api/filings?code=300750',
     );
+    expect(buildFinancialApiUrl('/api/filings?code=300750', undefined, 'xbb1111.github.io')).toBe(
+      'https://a-share-financial-report-api.2561340168.workers.dev/api/filings?code=300750',
+    );
   });
 
   it('searches securities through the financial report API', async () => {
