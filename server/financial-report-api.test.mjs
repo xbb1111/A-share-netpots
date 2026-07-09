@@ -37,6 +37,34 @@ describe('financial-report-api helpers', () => {
     ).toBeNull();
   });
 
+  it('matches the same filing period and prefers net profit guidance over deducted net profit', () => {
+    const q1Forecast = {
+      REPORT_DATE: '2026-03-31 00:00:00',
+      PREDICT_FINANCE_CODE: '004',
+      PREDICT_FINANCE: '归属于上市公司股东的净利润',
+      FORECAST_JZ: 247500000,
+    };
+    const halfYearDeductedForecast = {
+      REPORT_DATE: '2026-06-30 00:00:00',
+      PREDICT_FINANCE_CODE: '005',
+      PREDICT_FINANCE: '扣除非经常性损益后的净利润',
+      FORECAST_JZ: 490000000,
+    };
+    const halfYearNetProfitForecast = {
+      REPORT_DATE: '2026-06-30 00:00:00',
+      PREDICT_FINANCE_CODE: '004',
+      PREDICT_FINANCE: '归属于上市公司股东的净利润',
+      FORECAST_JZ: 490500000,
+    };
+
+    expect(
+      pickRelatedForecast(
+        [q1Forecast, halfYearDeductedForecast, halfYearNetProfitForecast],
+        { reportDate: '2026-07-08', title: '2026年半年度业绩预告' },
+      ),
+    ).toBe(halfYearNetProfitForecast);
+  });
+
   it('handles CORS preflight with the shared fetch entrypoint', async () => {
     const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/filings', { method: 'OPTIONS' }));
 

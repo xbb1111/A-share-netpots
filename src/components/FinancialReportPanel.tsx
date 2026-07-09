@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, FileSearch, Loader2, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, BarChart3, ClipboardCopy, FileSearch, Loader2, Search, Sparkles } from 'lucide-react';
 import { SectionHeader } from './SectionHeader';
 import {
   fetchFilingAnalysis,
@@ -231,6 +231,18 @@ function AnalysisPlaceholder({ isBusy }: { isBusy: boolean }) {
 }
 
 function AnalysisResultView({ analysis }: { analysis: FilingAnalysisResult }) {
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  async function copyAiPrompt() {
+    if (!analysis.methodology?.aiPrompt) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(analysis.methodology.aiPrompt);
+    setCopiedPrompt(true);
+    window.setTimeout(() => setCopiedPrompt(false), 1600);
+  }
+
   return (
     <div className="analysis-result">
       <div className={`analysis-verdict analysis-verdict--${analysis.verdict}`}>
@@ -299,6 +311,18 @@ function AnalysisResultView({ analysis }: { analysis: FilingAnalysisResult }) {
           <p>{analysis.methodology?.engine ?? '规则引擎 v1（未接入 AI 模型）'}</p>
           <p>{analysis.methodology?.expectationStandard ?? '当前版本按公开公告、业绩预告字段和风险规则打分。'}</p>
           {analysis.methodology?.rules.map((rule) => <p key={rule}>{rule}</p>)}
+          {analysis.methodology?.aiPrompt ? (
+            <div className="ai-prompt-box">
+              <div>
+                <strong>免费 AI 复核</strong>
+                <span>复制提示词到任意 AI，让它基于本页结构化数据二次分析，不需要本站接入付费模型。</span>
+              </div>
+              <button type="button" onClick={() => void copyAiPrompt()}>
+                <ClipboardCopy size={15} aria-hidden="true" />
+                {copiedPrompt ? '已复制' : '复制提示词'}
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section>

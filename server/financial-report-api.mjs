@@ -198,6 +198,7 @@ async function buildRealAnalysis(code, filingId) {
         '雷点按缺失项、业绩下滑、风险措辞和利润区间明确度触发',
       ],
       expectationStandard: '当前版本没有接入机构一致预期和完整季度环比财务表；因此“超预期”只在同年结构化预告明确、增速较高且无高风险雷点时给出，否则标记为待核验或分化。',
+      aiPrompt: buildAiAnalysisPrompt(security, filing, score, componentScores, riskFlags, relatedForecast),
     },
     industryChecklist: buildIndustryChecklist(security.industry, filing.type),
     summary: buildSummary(security, filing, score, componentScores, riskFlags, relatedForecast),
@@ -210,7 +211,7 @@ async function fetchEastmoneyForecasts(code) {
   url.searchParams.set('columns', 'ALL');
   url.searchParams.set('filter', `(SECURITY_CODE="${code}")`);
   url.searchParams.set('pageNumber', '1');
-  url.searchParams.set('pageSize', '20');
+  url.searchParams.set('pageSize', '100');
 
   const payload = await fetchJson(url);
   return payload.result?.data ?? [];
@@ -221,13 +222,48 @@ export function pickRelatedForecast(forecasts, filing) {
     return null;
   }
 
-  const profitForecasts = forecasts.filter((item) => /净利润/.test(String(item.PREDICT_FINANCE ?? item.PREDICT_CONTENT ?? '')));
+  const targetDate = inferForecastReportDate(filing);
   const targetYear = filing.reportDate.slice(0, 4);
-  const sameYearForecast =
-    profitForecasts.find((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear)) ??
-    forecasts.find((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear));
+  const samePeriodForecasts = forecasts.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate));
+  const sameYearForecasts = forecasts.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear));
+  const candidates = samePeriodForecasts.length > 0 ? samePeriodForecasts : sameYearForecasts;
 
-  return sameYearForecast ?? null;
+  return sortForecastCandidates(candidates)[0] ?? null;
+}
+
+function inferForecastReportDate(filing) {
+  const year = filing.reportDate.slice(0, 4);
+  const title = String(filing.title ?? '');
+
+  if (/一季|第一季|1-3月|一季度/.test(title)) return `${year}-03-31`;
+  if (/半年度|半年度|半年|1-6月|中期/.test(title)) return `${year}-06-30`;
+  if (/三季|第三季|前三季|1-9月/.test(title)) return `${year}-09-30`;
+  if (/年度|年报|1-12月/.test(title)) return `${year}-12-31`;
+
+  const month = Number(filing.reportDate.slice(5, 7));
+  if (month <= 4) return `${year}-03-31`;
+  if (month <= 8) return `${year}-06-30`;
+  if (month <= 10) return `${year}-09-30`;
+  return `${year}-12-31`;
+}
+
+function sortForecastCandidates(candidates) {
+  return [...candidates].sort((a, b) => forecastPriority(b) - forecastPriority(a));
+}
+
+function forecastPriority(item) {
+  const finance = String(item.PREDICT_FINANCE ?? item.PREDICT_CONTENT ?? '');
+  const code = String(item.PREDICT_FINANCE_CODE ?? '');
+  let priority = 0;
+
+  if (code === '004' || /归属于上市公司股东的净利润/.test(finance)) priority += 30;
+  if (code === '005' || /扣除非经常性损益后的净利润/.test(finance)) priority += 20;
+  if (/净利润/.test(finance)) priority += 10;
+  if (Number.isFinite(Number(item.PREDICT_AMT_LOWER)) || Number.isFinite(Number(item.PREDICT_AMT_UPPER))) priority += 4;
+  if (Number.isFinite(Number(item.INCREASE_JZ))) priority += 2;
+  if (String(item.IS_LATEST ?? '') === 'T') priority += 1;
+
+  return priority;
 }
 
 function buildComponentScores(filing, forecasts, relatedForecast) {
@@ -428,6 +464,60 @@ function buildSummary(security, filing, score, componentScores, riskFlags, forec
   const forecastText = forecast ? `业绩预告依据：${forecast.PREDICT_CONTENT ?? forecast.CHANGE_REASON_EXPLAIN ?? '-'}` : '未取得同年业绩预告结构化字段；缺少 Q2 环比、机构一致预期和完整财务表时，仅可做低置信度核验。';
 
   return `${security.name}${filing.title}：${scoreText}。${riskText}${missingText}${forecastText}`;
+}
+
+function buildAiAnalysisPrompt(security, filing, score, componentScores, riskFlags, forecast) {
+  const componentText = componentScores
+    .map((item) => {
+      const dataText = item.data.map((data) => `${data.label}=${data.value}`).join('；');
+      return `- ${item.label}：${item.score === null ? '数据缺失' : `${item.score}分`}；${item.detail}；${dataText}`;
+    })
+    .join('\n');
+  const riskText = riskFlags.length > 0
+    ? riskFlags.map((flag) => `- ${flag.label}：${flag.value ?? '待核验'}；阈值/规则：${flag.benchmark ?? '未设置'}`).join('\n')
+    : '- 暂未识别高优先级风险';
+  const forecastText = forecast
+    ? JSON.stringify(
+        {
+          预告类型: forecast.PREDICT_TYPE,
+          财务项目: forecast.PREDICT_FINANCE,
+          下限: forecast.PREDICT_AMT_LOWER,
+          上限: forecast.PREDICT_AMT_UPPER,
+          中值: forecast.FORECAST_JZ,
+          同比增幅中值: forecast.INCREASE_JZ,
+          原因说明: forecast.CHANGE_REASON_EXPLAIN ?? forecast.PREDICT_CONTENT,
+        },
+        null,
+        2,
+      )
+    : '未取得同报告期结构化业绩预告数据';
+
+  return `你是一名A股财报和业绩预告分析师。请基于以下公开数据，判断该公告是超预期、符合预期、不及预期还是结果分化，并明确列出依据和雷点。不要编造未提供的数据；如果缺少机构一致预期、环比数据或现金流数据，请标注为待补充。
+
+公司：${security.name}（${security.code}）
+公告：${filing.title}
+披露日期：${filing.reportDate}
+公告链接：${filing.url}
+
+当前规则引擎初评分：${score}
+
+结构化业绩预告数据：
+${forecastText}
+
+分项评分：
+${componentText}
+
+风险雷点：
+${riskText}
+
+请按以下格式输出：
+1. 一句话结论
+2. 是否超预期及判断标准
+3. 关键数据表格
+4. 正向因素
+5. 风险雷点
+6. 还需要补充的数据
+7. 如果我是投资者，下一步应该核验什么`;
 }
 
 function normalizeFilingType(title) {

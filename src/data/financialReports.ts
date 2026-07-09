@@ -91,6 +91,7 @@ export type FilingAnalysisResult = {
     engine: string;
     rules: string[];
     expectationStandard: string;
+    aiPrompt?: string;
   };
   industryChecklist: string[];
   summary: string;
