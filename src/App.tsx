@@ -73,6 +73,7 @@ import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
 import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
 import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
 import { fetchCustomIndexData } from './data/customIndexService';
+import { searchReportSecurities } from './data/financialReportService';
 import {
   createCustomIndex,
   duplicateCustomIndex,
@@ -1744,12 +1745,23 @@ function CustomIndexToolPanel() {
   }
 
   async function searchStocks() {
-    if (!searchQuery.trim()) return;
+    const query = searchQuery.trim();
+    if (!query) return;
     setIsSearching(true);
+    setError(null);
     try {
-      setSuggestions(await searchSecuritySuggestions(searchQuery));
+      let items = await searchSecuritySuggestions(query).catch(() => []);
+      if (items.length === 0) {
+        items = (await searchReportSecurities(query).catch(() => [])).map((item) => ({ code: item.code, name: item.name }));
+      }
+      if (items.length === 0 && /^\d{6}$/.test(query)) {
+        items = [{ code: query, name: query }];
+      }
+      setSuggestions(items);
+      if (items.length === 0) setError(`未找到“${query}”。可以直接输入 6 位股票代码再点击搜索。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '股票搜索失败');
+      setSuggestions([]);
     } finally {
       setIsSearching(false);
     }
