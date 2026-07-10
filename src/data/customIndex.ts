@@ -111,12 +111,26 @@ export function prepareComponentsForWeightMethod(
   currentMethod: WeightMethod,
   nextMethod: WeightMethod,
 ): IndexComponent[] {
-  if (nextMethod !== 'custom' || currentMethod === 'custom') return components;
-  const weights = calculateTargetWeights(components, currentMethod);
-  return components.map((component) => ({
+  if (nextMethod === 'custom' && currentMethod === 'custom') return components;
+  const sourceMethod = nextMethod === 'custom' ? currentMethod : nextMethod;
+  const weights = calculateTargetWeights(components, sourceMethod);
+  const targetWeights = components.map((component) => Number(((weights[component.code] ?? 0) * 100).toFixed(2)));
+  const remainder = Number((100 - targetWeights.reduce((sum, weight) => sum + weight, 0)).toFixed(2));
+  if (targetWeights.length > 0) targetWeights[targetWeights.length - 1] = Number((targetWeights[targetWeights.length - 1] + remainder).toFixed(2));
+  return components.map((component, index) => ({
     ...component,
-    targetWeight: Number(((weights[component.code] ?? 0) * 100).toFixed(2)),
+    targetWeight: targetWeights[index],
   }));
+}
+
+export function selectCoreComponents(
+  components: IndexComponent[],
+  weights: Record<string, number>,
+  limit = 5,
+): IndexComponent[] {
+  return [...components]
+    .sort((left, right) => (weights[right.code] ?? 0) - (weights[left.code] ?? 0))
+    .slice(0, Math.max(0, limit));
 }
 
 function normalizeHistory(history: PriceBar[]) {

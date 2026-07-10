@@ -71,7 +71,7 @@ import {
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
 import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
-import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, getWeightInputDisplayValue, prepareComponentsForWeightMethod, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
+import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, getWeightInputDisplayValue, prepareComponentsForWeightMethod, selectCoreComponents, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
 import { fetchCustomIndexData } from './data/customIndexService';
 import { searchReportSecurities } from './data/financialReportService';
 import {
@@ -1702,7 +1702,6 @@ function CustomIndexToolPanel() {
   const [benchmarkSuggestions, setBenchmarkSuggestions] = useState<SecuritySuggestion[]>([]);
   const [benchmarkInput, setBenchmarkInput] = useState('');
   const [weightInputValues, setWeightInputValues] = useState<Record<string, string>>({});
-  const [componentSort, setComponentSort] = useState<'manual' | 'marketCap' | 'price' | 'pe' | 'weight'>('manual');
   const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1787,10 +1786,9 @@ function CustomIndexToolPanel() {
       [components[index], components[nextIndex]] = [components[nextIndex], components[index]];
       return { ...current, components };
     });
-    setComponentSort('manual');
   }
 
-  function sortComponents(sort: Exclude<typeof componentSort, 'manual'>) {
+  function sortComponents(sort: 'marketCap' | 'price' | 'pe' | 'weight') {
     setDraft((current) => {
       const value = (component: IndexComponent) => {
         if (sort === 'marketCap') return result?.marketData.marketCaps[component.code] ?? -Infinity;
@@ -1800,7 +1798,6 @@ function CustomIndexToolPanel() {
       };
       return { ...current, components: [...current.components].sort((left, right) => value(right) - value(left)) };
     });
-    setComponentSort(componentSort === sort ? 'manual' : sort);
   }
 
   function getDraftWeightTotal() {
@@ -1809,6 +1806,7 @@ function CustomIndexToolPanel() {
   }
 
   function updateManualWeight(code: string, weight: number) {
+    setError(null);
     setDraft((current) => ({
       ...current,
       weightMethod: 'custom',
@@ -1827,6 +1825,7 @@ function CustomIndexToolPanel() {
   }
 
   function changeWeightMethod(weightMethod: CustomIndexConfig['weightMethod']) {
+    setError(null);
     setWeightInputValues({});
     setDraft((current) => {
       const componentsWithMarketCap = current.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
@@ -2054,6 +2053,16 @@ function CustomIndexToolPanel() {
     return () => observer.disconnect();
   }, [result]);
 
+  const detailComponents = editingId === selectedId ? draft.components : selected?.components ?? [];
+  const latestResultWeights = result?.series.at(-1)?.weights ?? {};
+  const detailWeights = Object.fromEntries(detailComponents.map((component) => [
+    component.code,
+    editingId === selectedId && result
+      ? Number(getEditableWeightText(component)) / 100
+      : latestResultWeights[component.code] ?? ((component.targetWeight ?? 0) / 100),
+  ]));
+  const coreComponents = selectCoreComponents(detailComponents, detailWeights, 5);
+
   return (
     <section className="custom-index-tool panel">
       <div className="custom-index-toolbar">
@@ -2109,7 +2118,7 @@ function CustomIndexToolPanel() {
                     <button type="button" className={`custom-index-metric-button${activeMetric === 'drawdown' ? ' custom-index-metric-button--active' : ''}`} onClick={() => { setActiveMetric((current) => current === 'drawdown' ? null : 'drawdown'); setIndexChartWindow('all'); }}><span>最大回撤 · 点击查看区间</span><strong className="negative">-{(result.metrics.maxDrawdown * 100).toFixed(2)}%</strong></button>
                   </div>
                   <div className="custom-index-benchmark-toolbar">
-                    <label><span>对比基准</span><input value={benchmarkInput} onChange={(event) => setBenchmarkInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') updateSelectedBenchmark(benchmarkInput); }} onBlur={() => { if (/^\d{6}$/.test(benchmarkInput.trim())) updateSelectedBenchmark(benchmarkInput); }} placeholder="输入代码或名称，例如 588000" /></label>
+                    <label><span>对比基准</span><input type="text" value={benchmarkInput} onChange={(event) => setBenchmarkInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') updateSelectedBenchmark(benchmarkInput); }} onBlur={() => { if (/^\d{6}$/.test(benchmarkInput.trim())) updateSelectedBenchmark(benchmarkInput); }} placeholder="输入代码或名称，例如 588000" /></label>
                     <label className="custom-index-benchmark-toggle"><input type="checkbox" checked={selected.showBenchmark ?? true} onChange={(event) => updateSelectedBenchmarkVisibility(event.target.checked)} /><span>在图中显示基准</span></label>
                     {benchmarkSuggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => updateSelectedBenchmark(suggestion.code)}>{suggestion.name} {suggestion.code}</button>)}
                   </div>
@@ -2172,7 +2181,7 @@ function CustomIndexToolPanel() {
                     </div>
                   </div>
                   <div className="custom-index-summary-grid">
-                    <div><SectionHeader icon={BarChart3} eyebrow="Composition" title="成分与权重" /><div className="custom-index-holdings-head"><span>成分股</span><span>市值</span><span>当前权重</span></div>{selected.components.map((component) => { const currentWeight = result.series.at(-1)?.weights[component.code] ?? ((component.targetWeight ?? 0) / 100); return <div className="custom-index-row custom-index-row--holdings" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result.marketData.marketCaps[component.code])}</b><b>{(currentWeight * 100).toFixed(2)}%</b></div>; })}</div>
+                    <div><SectionHeader icon={BarChart3} eyebrow="Composition" title="前五大核心成分" /><div className="custom-index-holdings-head"><span>成分股</span><span>市值</span><span>股价</span><span>PE</span><span>权重</span></div>{coreComponents.map((component) => <div className="custom-index-row custom-index-row--holdings" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result.marketData.marketCaps[component.code])}</b><b>{result.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><b>{((detailWeights[component.code] ?? 0) * 100).toFixed(2)}%</b></div>)}{detailComponents.length > 5 ? <small className="custom-index-core-note">按当前权重仅展示前 5 大成分</small> : null}</div>
                     <div><SectionHeader icon={Factory} eyebrow="Risk Note" title="研究口径" /><p className="custom-index-note">数据源：东方财富前复权日线。指数从 100 起算，按配置周期调仓。当前仅用于研究观察，不代表可交易 ETF。</p>{result.diagnostics.map((diagnostic) => <p className="custom-index-warning" key={`${diagnostic.code}-${diagnostic.message}`}>{diagnostic.code}：{diagnostic.message}</p>)}</div>
                   </div>
                 </>
@@ -2193,8 +2202,8 @@ function CustomIndexToolPanel() {
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>
-          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{getDraftWeightTotal().toFixed(2)}%</b><div className="custom-index-sort"><button type="button" onClick={() => setComponentSort('manual')}>手动</button><button type="button" onClick={() => sortComponents('marketCap')}>市值</button><button type="button" onClick={() => sortComponents('price')}>股价</button><button type="button" onClick={() => sortComponents('pe')}>PE</button><button type="button" onClick={() => sortComponents('weight')}>权重</button></div></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><button type="button" onClick={() => sortComponents('marketCap')}>对应市值</button><button type="button" onClick={() => sortComponents('price')}>当前股价</button><button type="button" onClick={() => sortComponents('pe')}>当前 PE</button><button type="button" onClick={() => sortComponents('weight')}>当前权重</button><span>操作</span></div>{draft.components.map((component, index) => <div className="custom-index-component" key={component.code} draggable onDragStart={() => setDraggedComponentCode(component.code)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedComponentCode && draggedComponentCode !== component.code) { const from = draft.components.findIndex((item) => item.code === draggedComponentCode); const to = draft.components.findIndex((item) => item.code === component.code); if (from >= 0 && to >= 0) { setDraft((current) => { const items = [...current.components]; const [moved] = items.splice(from, 1); items.splice(to, 0, moved); return { ...current, components: items }; }); } } setDraggedComponentCode(null); }}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={index === draft.components.length - 1}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
-          <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button><button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
+          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{getDraftWeightTotal().toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span aria-hidden="true" /><button type="button" onClick={() => sortComponents('marketCap')}>对应市值</button><button type="button" onClick={() => sortComponents('price')}>当前股价</button><button type="button" onClick={() => sortComponents('pe')}>当前 PE</button><button type="button" onClick={() => sortComponents('weight')}>当前权重</button><span>操作</span></div>{draft.components.map((component, index) => <div className="custom-index-component" key={component.code} draggable onDragStart={() => setDraggedComponentCode(component.code)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedComponentCode && draggedComponentCode !== component.code) { const from = draft.components.findIndex((item) => item.code === draggedComponentCode); const to = draft.components.findIndex((item) => item.code === component.code); if (from >= 0 && to >= 0) { setDraft((current) => { const items = [...current.components]; const [moved] = items.splice(from, 1); items.splice(to, 0, moved); return { ...current, components: items }; }); } } setDraggedComponentCode(null); }}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={index === draft.components.length - 1}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
+          <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button>{error ? <span className="custom-index-save-error">{error}</span> : null}<button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
         </div>
       ) : null}
     </section>

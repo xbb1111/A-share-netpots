@@ -5,6 +5,7 @@ import {
   calculateTargetWeights,
   getWeightInputDisplayValue,
   prepareComponentsForWeightMethod,
+  selectCoreComponents,
   validateIndexComponents,
   type CustomIndexConfig,
   type PriceHistory,
@@ -71,6 +72,23 @@ describe('custom index calculation', () => {
   it('copies automatic weights when switching back to custom weighting', () => {
     const marketCapComponents = components.map((item, index) => ({ ...item, marketCap: [100, 300, 600][index] }));
     expect(prepareComponentsForWeightMethod(marketCapComponents, 'marketCap', 'custom').map((item) => item.targetWeight)).toEqual([10, 30, 60]);
+  });
+
+  it('updates stored target weights when switching to an automatic method', () => {
+    expect(prepareComponentsForWeightMethod(components, 'custom', 'equal').map((item) => item.targetWeight)).toEqual([33.33, 33.33, 33.34]);
+    expect(
+      prepareComponentsForWeightMethod(
+        components.map((item, index) => ({ ...item, marketCap: [100, 300, 600][index] })),
+        'custom',
+        'marketCap',
+      ).map((item) => item.targetWeight),
+    ).toEqual([10, 30, 60]);
+  });
+
+  it('selects the five largest components by current weight', () => {
+    const manyComponents = Array.from({ length: 7 }, (_, index) => ({ code: String(index), name: String(index), industry: '测试' }));
+    const weights = { '0': 0.05, '1': 0.3, '2': 0.1, '3': 0.2, '4': 0.15, '5': 0.12, '6': 0.08 };
+    expect(selectCoreComponents(manyComponents, weights).map((item) => item.code)).toEqual(['1', '3', '4', '5', '2']);
   });
 
   it('aligns dates and calculates a base-100 index', () => {

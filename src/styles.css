@@ -1630,7 +1630,7 @@ h2 {
 
 .custom-index-summary-grid {
   display: grid;
-  grid-template-columns: 1fr 0.8fr;
+  grid-template-columns: minmax(560px, 1.45fr) minmax(260px, 0.65fr);
   gap: 18px;
   margin-top: 12px;
 }
@@ -1676,7 +1676,8 @@ h2 {
 
 .custom-index-holdings-head {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 110px 110px;
+  grid-template-columns: minmax(150px, 1fr) 100px 82px 72px 82px;
+  gap: 8px;
   padding: 8px 0;
   color: var(--muted);
   font-size: 11px;
@@ -1685,11 +1686,20 @@ h2 {
 
 .custom-index-row--holdings {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 110px 110px;
+  grid-template-columns: minmax(150px, 1fr) 100px 82px 72px 82px;
+  gap: 8px;
 }
 
 .custom-index-row--holdings > b {
   text-align: right;
+  white-space: nowrap;
+}
+
+.custom-index-core-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .custom-index-row b,
@@ -1800,6 +1810,13 @@ h2 {
 
 .custom-index-component input {
   width: 90px;
+}
+
+.custom-index-save-error {
+  flex: 1;
+  color: #e8a8ae;
+  font-size: 12px;
+  text-align: right;
 }
 
 .custom-index-component input[type='text'] { text-align: right; }
