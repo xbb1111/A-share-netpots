@@ -31,6 +31,7 @@ describe('priceDiscipline', () => {
     expect(getSecid('600519')).toBe('1.600519');
     expect(getSecid('510300')).toBe('1.510300');
     expect(getSecid('159919')).toBe('0.159919');
+    expect(getSecid('000300')).toBe('1.000300');
   });
 
   it('extracts codes and optional names from mixed security input', () => {

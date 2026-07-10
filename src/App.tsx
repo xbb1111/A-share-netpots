@@ -73,6 +73,7 @@ import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
 import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
 import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
 import { fetchCustomIndexData } from './data/customIndexService';
+import { searchReportSecurities } from './data/financialReportService';
 import {
   createCustomIndex,
   duplicateCustomIndex,
@@ -1526,6 +1527,13 @@ function normalizeBenchmark(history: PriceBar[]) {
   return history.map((bar) => ({ date: bar.date, value: (bar.close / firstClose) * 100 }));
 }
 
+function findBenchmarkValue(benchmarkSeries: Array<{ date: string; value: number }>, time: string) {
+  const exact = benchmarkSeries.find((point) => point.date === time);
+  if (exact) return exact.value;
+  const day = time.slice(0, 10);
+  return benchmarkSeries.find((point) => point.date.slice(0, 10) === day)?.value;
+}
+
 function calculateCustomIndexResult(index: StoredCustomIndex, data: Awaited<ReturnType<typeof fetchCustomIndexData>>): CustomIndexResult {
   const components = index.components.map((component) => ({ ...component, marketCap: data.marketCaps[component.code] }));
   const series = calculateIndexSeries({ ...index, components }, data.histories);
@@ -1569,7 +1577,7 @@ function buildCustomIndexChartRows(
     ...row,
     seriesIndex: firstSeriesIndex + index,
     plotX: calculateRightAlignedPlotX(index, bars.length, slotCount),
-    benchmark: benchmarkSeries.find((point) => point.date === row.time)?.value,
+    benchmark: findBenchmarkValue(benchmarkSeries, row.time),
     ma5: movingAverages[5][index],
     ma10: movingAverages[10][index],
     ma20: movingAverages[20][index],
@@ -1689,6 +1697,10 @@ function CustomIndexToolPanel() {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [benchmarkSuggestions, setBenchmarkSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [weightInputValues, setWeightInputValues] = useState<Record<string, string>>({});
+  const [componentSort, setComponentSort] = useState<'manual' | 'marketCap' | 'price' | 'pe' | 'weight'>('manual');
+  const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CustomIndexResult | null>(null);
@@ -1723,11 +1735,57 @@ function CustomIndexToolPanel() {
       setEditingId(null);
       setDraft(emptyCustomIndexDraft());
     }
+    setBenchmarkSuggestions([]);
+    setWeightInputValues({});
     setIsEditorOpen(true);
   }
 
+  useEffect(() => {
+    const query = (draft.benchmarkCode ?? '').trim();
+    if (!isEditorOpen || !query || /^\d{6}$/.test(query)) {
+      setBenchmarkSuggestions([]);
+      return;
+    }
+    let isStale = false;
+    const timer = window.setTimeout(async () => {
+      const items = await searchSecuritySuggestions(query).catch(() => []);
+      if (!isStale) setBenchmarkSuggestions(items);
+    }, 250);
+    return () => { isStale = true; window.clearTimeout(timer); };
+  }, [draft.benchmarkCode, isEditorOpen]);
+
   function removeComponent(code: string) {
     setDraft((current) => ({ ...current, components: current.components.filter((component) => component.code !== code) }));
+  }
+
+  function moveComponent(code: string, direction: -1 | 1) {
+    setDraft((current) => {
+      const index = current.components.findIndex((component) => component.code === code);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.components.length) return current;
+      const components = [...current.components];
+      [components[index], components[nextIndex]] = [components[nextIndex], components[index]];
+      return { ...current, components };
+    });
+    setComponentSort('manual');
+  }
+
+  function sortComponents(sort: Exclude<typeof componentSort, 'manual'>) {
+    setDraft((current) => {
+      const value = (component: IndexComponent) => {
+        if (sort === 'marketCap') return result?.marketData.marketCaps[component.code] ?? -Infinity;
+        if (sort === 'price') return result?.marketData.currentPrices[component.code] ?? -Infinity;
+        if (sort === 'pe') return result?.marketData.currentPE[component.code] ?? -Infinity;
+        return getEditableWeight(component);
+      };
+      return { ...current, components: [...current.components].sort((left, right) => value(right) - value(left)) };
+    });
+    setComponentSort(componentSort === sort ? 'manual' : sort);
+  }
+
+  function getDraftWeightTotal() {
+    if (draft.weightMethod === 'custom') return draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0);
+    return (result?.series.at(-1)?.weights ? Object.values(result.series.at(-1)?.weights ?? {}).reduce((sum, weight) => sum + weight, 0) * 100 : 0);
   }
 
   function updateManualWeight(code: string, weight: number) {
@@ -1743,11 +1801,31 @@ function CustomIndexToolPanel() {
     return Number(((currentWeight ?? ((component.targetWeight ?? 0) / 100)) * 100).toFixed(2));
   }
 
+  function getEditableWeightText(component: IndexComponent) {
+    return weightInputValues[component.code] ?? String(getEditableWeight(component));
+  }
+
+  function updateWeightInput(component: IndexComponent, value: string) {
+    setWeightInputValues((current) => ({ ...current, [component.code]: value }));
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) updateManualWeight(component.code, parsed);
+  }
+
+  function commitWeightInput(component: IndexComponent) {
+    const value = weightInputValues[component.code];
+    if (!value || !Number.isFinite(Number(value))) {
+      setWeightInputValues((current) => ({ ...current, [component.code]: String(getEditableWeight(component)) }));
+    }
+  }
+
   async function searchStocks() {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     try {
-      setSuggestions(await searchSecuritySuggestions(searchQuery));
+      let items = await searchSecuritySuggestions(searchQuery).catch(() => []);
+      if (items.length === 0) items = (await searchReportSecurities(searchQuery).catch(() => [])).map((item) => ({ code: item.code, name: item.name }));
+      if (items.length === 0 && /^\d{6}$/.test(searchQuery.trim())) items = [{ code: searchQuery.trim(), name: searchQuery.trim() }];
+      setSuggestions(items);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '股票搜索失败');
     } finally {
@@ -1789,7 +1867,11 @@ function CustomIndexToolPanel() {
       let benchmarkCode = index.benchmarkCode;
       if (benchmarkCode && !/^\d{6}$/.test(benchmarkCode)) {
         try {
-          benchmarkCode = (await resolveSecurityQuery(benchmarkCode)).code;
+          benchmarkCode = (await resolveSecurityQuery(benchmarkCode).catch(async () => {
+            const [fallback] = (await searchReportSecurities(benchmarkCode ?? '').catch(() => []));
+            if (!fallback) throw new Error('未找到基准');
+            return { code: fallback.code, name: fallback.name };
+          })).code;
         } catch {
           benchmarkCode = undefined;
         }
@@ -1818,6 +1900,14 @@ function CustomIndexToolPanel() {
       setError(caught instanceof Error ? caught.message : '预览计算失败');
     }
   }, [draft.baseDate, draft.components, draft.rebalanceFrequency, draft.weightMethod, editingId, result?.marketData, selected, selectedId]);
+
+  useEffect(() => {
+    if (!editingId || editingId !== selectedId || !selected || draft.benchmarkCode === selected.benchmarkCode) return;
+    const timer = window.setTimeout(() => {
+      void calculateSelected({ ...selected, ...draft } as StoredCustomIndex);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [draft.benchmarkCode, editingId, selected, selectedId]);
 
   function duplicateSelected() {
     if (!selected) return;
@@ -1995,8 +2085,8 @@ function CustomIndexToolPanel() {
                   </div>
                   <CustomIndexKlineChart
                     name={selected.name}
-                    benchmarkCode={selected.benchmarkCode}
-                    showBenchmark={selected.showBenchmark ?? true}
+                    benchmarkCode={editingId === selected.id ? draft.benchmarkCode : selected.benchmarkCode}
+                    showBenchmark={editingId === selected.id ? draft.showBenchmark ?? true : selected.showBenchmark ?? true}
                     period={selected.period ?? 'daily'}
                     chartType={indexChartType}
                     chartWindow={indexChartWindow}
@@ -2069,14 +2159,13 @@ function CustomIndexToolPanel() {
             <label>名称<input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>说明<input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="例如：AI 算力产业链" /></label>
             <label>基准日<div className="custom-index-date-input"><input ref={dateInputRef} type="date" min="2015-01-01" max={new Date().toISOString().slice(0, 10)} value={draft.baseDate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, baseDate: event.target.value }))} /><button type="button" onClick={() => { const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; input?.showPicker?.(); input?.focus(); }}>打开日历</button></div></label>
-            <label>对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" /></label>
+            <label className="custom-index-benchmark-field">对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" />{benchmarkSuggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => { setDraft((current) => ({ ...current, benchmarkCode: suggestion.code })); setBenchmarkSuggestions([]); }}>{suggestion.name} {suggestion.code}</button>)}</label>
             <label className="custom-index-checkbox-label"><input type="checkbox" checked={draft.showBenchmark ?? true} onChange={(event) => setDraft((current) => ({ ...current, showBenchmark: event.target.checked }))} /><span>在图中显示基准</span></label>
-            <label>行情周期<select value={draft.period ?? 'daily'} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as IndexBarPeriod }))}>{KLINE_PERIODS.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}</select></label>
             <label>权重方式<select value={draft.weightMethod} onChange={(event) => setDraft((current) => ({ ...current, weightMethod: event.target.value as CustomIndexConfig['weightMethod'] }))}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>
-          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0).toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><span>对应市值</span><span>当前权重</span><span>操作</span></div>{draft.components.map((component) => <div className="custom-index-component" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><input aria-label={`${component.name}当前权重`} type="number" min="0" max="100" step="0.1" value={getEditableWeight(component)} onChange={(event) => updateManualWeight(component.code, Number(event.target.value))} /><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></div>)}</div>
+          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{getDraftWeightTotal().toFixed(2)}%</b><div className="custom-index-sort"><button type="button" onClick={() => setComponentSort('manual')}>手动</button><button type="button" onClick={() => sortComponents('marketCap')}>市值</button><button type="button" onClick={() => sortComponents('price')}>股价</button><button type="button" onClick={() => sortComponents('pe')}>PE</button><button type="button" onClick={() => sortComponents('weight')}>权重</button></div></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><button type="button" onClick={() => sortComponents('marketCap')}>对应市值</button><button type="button" onClick={() => sortComponents('price')}>当前股价</button><button type="button" onClick={() => sortComponents('pe')}>当前 PE</button><button type="button" onClick={() => sortComponents('weight')}>当前权重</button><span>操作</span></div>{draft.components.map((component, index) => <div className="custom-index-component" key={component.code} draggable onDragStart={() => setDraggedComponentCode(component.code)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedComponentCode && draggedComponentCode !== component.code) { const from = draft.components.findIndex((item) => item.code === draggedComponentCode); const to = draft.components.findIndex((item) => item.code === component.code); if (from >= 0 && to >= 0) { setDraft((current) => { const items = [...current.components]; const [moved] = items.splice(from, 1); items.splice(to, 0, moved); return { ...current, components: items }; }); } } setDraggedComponentCode(null); }}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={index === draft.components.length - 1}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
           <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button><button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
         </div>
       ) : null}

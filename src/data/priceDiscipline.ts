@@ -73,6 +73,10 @@ export const KLINE_PERIODS: Array<{ value: KlinePeriod; label: string; klt: stri
 export function getSecid(input: string): string {
   const code = input.trim();
 
+  if (/^000(016|300|905|852)$/.test(code)) {
+    return `1.${code}`;
+  }
+
   if (/^[659]/.test(code)) {
     return `1.${code}`;
   }
