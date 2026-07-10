@@ -20,6 +20,7 @@ export type CustomIndexConfig = {
   period?: IndexBarPeriod;
   baseDate?: string;
   benchmarkCode?: string;
+  showBenchmark?: boolean;
   baseValue?: number;
 };
 
