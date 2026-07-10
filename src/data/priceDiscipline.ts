@@ -283,12 +283,29 @@ export function calculateMovePercent(buyPrice: number, targetPrice: number): num
   return roundPercent(((targetPrice - buyPrice) / buyPrice) * 100);
 }
 
-export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all'): T[] {
+export function calculateVisibleBars<T>(bars: T[], windowSize: number | 'all', offset = 0): T[] {
   if (windowSize === 'all' || windowSize >= bars.length) {
     return bars;
   }
 
-  return bars.slice(-windowSize);
+  const end = Math.max(bars.length - Math.max(Math.round(offset), 0), Math.min(windowSize, bars.length));
+  return bars.slice(end - windowSize, end);
+}
+
+export function calculatePannedOffset(
+  currentOffset: number,
+  deltaX: number,
+  plotWidth: number,
+  windowSize: number | 'all',
+  totalBars: number,
+) {
+  if (windowSize === 'all' || totalBars <= windowSize) return 0;
+  const safePlotWidth = Math.max(plotWidth, 1);
+  const safeWindow = Math.max(windowSize, 2);
+  const step = safePlotWidth / (safeWindow - 1);
+  const shift = Math.round(deltaX / Math.max(step, 1));
+  const maxOffset = Math.max(totalBars - windowSize, 0);
+  return Math.min(Math.max(Math.round(currentOffset) + shift, 0), maxOffset);
 }
 
 export function calculatePlotSlotCount(rowCount: number, minimumSlots: number): number {

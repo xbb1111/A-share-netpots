@@ -9,6 +9,7 @@ import {
   calculateRightAlignedPlotX,
   calculateStopLoss,
   calculateVisibleBars,
+  calculatePannedOffset,
   calculateZoomWindow,
   dedupeNearbyPriceLevels,
   deriveAutoLevels,
@@ -219,6 +220,7 @@ describe('priceDiscipline', () => {
     }));
 
     expect(calculateVisibleBars(bars, 3).map((bar) => bar.time)).toEqual(['3', '4', '5']);
+    expect(calculateVisibleBars(bars, 3, 1).map((bar) => bar.time)).toEqual(['2', '3', '4']);
     expect(calculateVisibleBars(bars, 'all').map((bar) => bar.time)).toEqual(['1', '2', '3', '4', '5']);
   });
 
@@ -229,6 +231,12 @@ describe('priceDiscipline', () => {
     expect(calculateZoomWindow(98, 160, 'out')).toBe(120);
     expect(calculateZoomWindow(140, 160, 'out')).toBe('all');
     expect(calculateZoomWindow('all', 160, 'in')).toBe(131);
+  });
+
+  it('calculates bounded horizontal pan offsets', () => {
+    expect(calculatePannedOffset(0, 120, 600, 60, 200)).toBe(12);
+    expect(calculatePannedOffset(12, -120, 600, 60, 200)).toBe(0);
+    expect(calculatePannedOffset(999, 0, 600, 60, 200)).toBe(140);
   });
 
   it('right-aligns sparse candlestick rows into a minimum number of plot slots', () => {

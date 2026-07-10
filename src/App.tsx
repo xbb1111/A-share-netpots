@@ -48,6 +48,7 @@ import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
+  calculatePannedOffset,
   calculateBollingerBands,
   calculateMovingAverageSeries,
   calculatePlotSlotCount,
@@ -96,6 +97,7 @@ type PriceToolConfig = {
   period: KlinePeriod;
   chartType: 'line' | 'area' | 'candlestick';
   chartWindow: number | 'all';
+  chartOffset: number;
   buyPrice: string;
   manualLevels: string;
   pinnedLevelIds: string[];
@@ -155,6 +157,7 @@ const DEFAULT_PRICE_TOOL_CONFIG: PriceToolConfig = {
   period: 'daily',
   chartType: 'line',
   chartWindow: 120,
+  chartOffset: 0,
   buyPrice: '',
   manualLevels: '',
   pinnedLevelIds: [],
@@ -713,13 +716,14 @@ function PriceDisciplinePanel() {
   const [highlightedLevelId, setHighlightedLevelId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const chartDragRef = useRef<{ startX: number; startOffset: number } | null>(null);
   const buyPrice = Number(config.buyPrice);
   const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const manualPrices = useMemo(() => parseManualLevels(config.manualLevels), [config.manualLevels]);
   const autoLevels = useMemo(() => deriveAutoLevels(klineData?.bars ?? []), [klineData]);
   const chartRows = useMemo(
     () => {
-      const visibleBars = calculateVisibleBars(klineData?.bars ?? [], config.chartWindow);
+      const visibleBars = calculateVisibleBars(klineData?.bars ?? [], config.chartWindow, config.chartOffset);
       const minimumSlots = config.chartType === 'candlestick' ? PRICE_CHART_MIN_CANDLE_SLOTS : 1;
       const slotCount = calculatePlotSlotCount(visibleBars.length, minimumSlots);
       const movingAverages = Object.fromEntries(
@@ -739,7 +743,7 @@ function PriceDisciplinePanel() {
         bollLower: bollingerBands[index]?.lower ?? null,
       }));
     },
-    [config.chartType, config.chartWindow, klineData],
+    [config.chartOffset, config.chartType, config.chartWindow, klineData],
   );
   const chartSlotCount = useMemo(
     () => calculatePlotSlotCount(chartRows.length, config.chartType === 'candlestick' ? PRICE_CHART_MIN_CANDLE_SLOTS : 1),
@@ -972,7 +976,27 @@ function PriceDisciplinePanel() {
         klineData?.bars.length ?? chartRows.length,
         deltaY < 0 ? 'in' : 'out',
       ),
+      chartOffset: 0,
     });
+  }
+
+  function startChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    chartDragRef.current = { startX: event.clientX, startOffset: config.chartOffset };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = chartDragRef.current;
+    if (!drag || !klineData || config.chartWindow === 'all') return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const nextOffset = calculatePannedOffset(drag.startOffset, event.clientX - drag.startX, rect.width - PRICE_CHART_Y_AXIS_WIDTH - PRICE_CHART_MARGIN.right, config.chartWindow, klineData.bars.length);
+    updateConfig({ chartOffset: nextOffset });
+  }
+
+  function endChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    chartDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function applySecuritySuggestion(suggestion: SecuritySuggestion) {
@@ -1249,6 +1273,10 @@ function PriceDisciplinePanel() {
               ref={chartCanvasRef}
               onMouseMove={handleChartCanvasMouseMove}
               onMouseLeave={() => setHoverPoint(null)}
+              onPointerDown={startChartDrag}
+              onPointerMove={moveChartDrag}
+              onPointerUp={endChartDrag}
+              onPointerCancel={endChartDrag}
             >
               <ResponsiveContainer width="100%" height={PRICE_CHART_HEIGHT}>
               {config.chartType === 'candlestick' ? (
@@ -1477,6 +1505,7 @@ function emptyCustomIndexDraft(): CustomIndexConfig & Pick<StoredCustomIndex, 'n
     period: 'daily',
     baseDate: '',
     benchmarkCode: '000300',
+    showBenchmark: true,
   };
 }
 
@@ -1515,9 +1544,10 @@ function buildCustomIndexChartRows(
   benchmarkSeries: Array<{ date: string; value: number }>,
   chartWindow: number | 'all',
   chartType: 'line' | 'area' | 'candlestick',
+  chartOffset = 0,
 ) {
-  const visibleSeries = chartWindow === 'all' ? series : series.slice(-chartWindow);
-  const firstSeriesIndex = chartWindow === 'all' ? 0 : series.length - visibleSeries.length;
+  const visibleSeries = calculateVisibleBars(series, chartWindow, chartOffset);
+  const firstSeriesIndex = chartWindow === 'all' ? 0 : series.length - chartOffset - visibleSeries.length;
   const bars = visibleSeries.map((point) => ({
     time: point.date,
     open: point.open,
@@ -1553,6 +1583,7 @@ function buildCustomIndexChartRows(
 type CustomIndexKlineChartProps = {
   name: string;
   benchmarkCode?: string;
+  showBenchmark: boolean;
   period: IndexBarPeriod;
   chartType: 'line' | 'area' | 'candlestick';
   chartWindow: number | 'all';
@@ -1575,12 +1606,15 @@ type CustomIndexKlineChartProps = {
   onChartMouseMove: (state: unknown) => void;
   onCanvasMouseMove: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onCanvasMouseLeave: () => void;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 function CustomIndexKlineChart({
-  name, benchmarkCode, period, chartType, chartWindow, showMa, showBoll, rows, priceDomain, xDomain, xTicks, tickLabels,
+  name, benchmarkCode, period, showBenchmark, chartType, chartWindow, showMa, showBoll, rows, priceDomain, xDomain, xTicks, tickLabels,
   canvasWidth, hoverPoint, drawdownWindow, shellRef, canvasRef, onChartTypeChange, onPeriodChange, onWindowChange, onIndicatorChange,
-  onChartMouseMove, onCanvasMouseMove, onCanvasMouseLeave,
+  onChartMouseMove, onCanvasMouseMove, onCanvasMouseLeave, onPointerDown, onPointerMove, onPointerUp,
 }: CustomIndexKlineChartProps) {
   return (
     <div className="price-chart custom-index-chart custom-index-chart--native" ref={shellRef}>
@@ -1611,11 +1645,11 @@ function CustomIndexKlineChart({
               <option value="all">均线 + BOLL</option>
             </select>
           </label>
-          {(showMa || showBoll) ? <div className="price-indicator-legend"><span><i className="ma ma--5" />MA5</span><span><i className="ma ma--10" />MA10</span><span><i className="ma ma--20" />MA20</span><span><i className="ma ma--60" />MA60</span></div> : null}
+          {(showMa || showBoll) ? <div className="price-indicator-legend">{showMa ? <><span><i className="ma ma--5" />MA5</span><span><i className="ma ma--10" />MA10</span><span><i className="ma ma--20" />MA20</span><span><i className="ma ma--60" />MA60</span></> : null}{showBoll ? <><span><i className="dash" style={{ color: '#cbd5e1' }} />BOLL上轨/下轨</span><span><i className="dash" style={{ color: '#94a3b8' }} />BOLL中轨</span></> : null}</div> : null}
         </div>
-        <label className="custom-index-window-select"><span>显示范围</span><select value={String(chartWindow)} onChange={(event) => onWindowChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}><option value="30">最近 30 根</option><option value="60">最近 60 根</option><option value="120">最近 120 根</option><option value="all">全部</option></select></label>
+        <label className="custom-index-window-select"><span>显示范围</span><select value={String(chartWindow)} onChange={(event) => onWindowChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}>{chartWindow !== 'all' && ![30, 60, 120].includes(chartWindow) ? <option value={String(chartWindow)}>最近 {chartWindow} 根</option> : null}<option value="30">最近 30 根</option><option value="60">最近 60 根</option><option value="120">最近 120 根</option><option value="all">全部</option></select></label>
       </div>
-      <div className="price-chart__canvas custom-index-chart__canvas" ref={canvasRef} onMouseMove={onCanvasMouseMove} onMouseLeave={onCanvasMouseLeave}>
+      <div className="price-chart__canvas custom-index-chart__canvas" ref={canvasRef} onMouseMove={onCanvasMouseMove} onMouseLeave={onCanvasMouseLeave} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
         <ResponsiveContainer width="100%" height={PRICE_CHART_HEIGHT}>
           {chartType === 'candlestick' ? (
             <ComposedChart data={rows} margin={PRICE_CHART_MARGIN} onMouseMove={onChartMouseMove} onMouseLeave={onCanvasMouseLeave}>
@@ -1626,7 +1660,7 @@ function CustomIndexKlineChart({
                 <ReferenceLine x={rows.find((row) => row.seriesIndex === drawdownWindow.troughIndex)?.plotX} stroke="#e8a8ae" strokeDasharray="4 4" label={{ value: `低点 ${drawdownWindow.troughValue.toFixed(2)}`, fill: '#e8a8ae', fontSize: 11, position: 'insideBottom' }} />
               </> : null}
               <Line name="收盘净值" type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
-              <Line name={`基准 ${benchmarkCode ?? ''}`} type="monotone" dataKey="benchmark" dot={false} stroke="#5eb6c9" strokeWidth={1.5} connectNulls />
+              {showBenchmark ? <Line name={`基准 ${benchmarkCode ?? ''}`} type="monotone" dataKey="benchmark" dot={false} stroke="#5eb6c9" strokeWidth={1.5} connectNulls /> : null}
               {renderIndicatorLines({ showMa, showBoll })}
             </ComposedChart>
           ) : (
@@ -1634,7 +1668,7 @@ function CustomIndexKlineChart({
               {renderCommonChartChrome([], null, hoverPoint, priceDomain, xDomain, xTicks, (value) => tickLabels.get(value) ?? '', false)}
               {drawdownWindow ? <ReferenceArea x1={rows.find((row) => row.seriesIndex === drawdownWindow.peakIndex)?.plotX} x2={rows.find((row) => row.seriesIndex === drawdownWindow.troughIndex)?.plotX} y1={priceDomain[0]} y2={priceDomain[1]} fill="#c7646d" fillOpacity={0.12} ifOverflow="extendDomain" /> : null}
               {chartType === 'area' ? <Area type="monotone" dataKey="close" name="模拟净值" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} /> : <Line type="monotone" dataKey="close" name="模拟净值" stroke="#d6aa5c" strokeWidth={2} dot={false} />}
-              <Line type="monotone" dataKey="benchmark" name={`基准 ${benchmarkCode ?? ''}`} stroke="#5eb6c9" strokeWidth={1.5} dot={false} connectNulls />
+              {showBenchmark ? <Line type="monotone" dataKey="benchmark" name={`基准 ${benchmarkCode ?? ''}`} stroke="#5eb6c9" strokeWidth={1.5} dot={false} connectNulls /> : null}
               {renderIndicatorLines({ showMa, showBoll })}
             </RechartsLineChart>
           )}
@@ -1662,12 +1696,14 @@ function CustomIndexToolPanel() {
   const [isLoadingResult, setIsLoadingResult] = useState(false);
   const [indexChartType, setIndexChartType] = useState<'line' | 'area' | 'candlestick'>('candlestick');
   const [indexChartWindow, setIndexChartWindow] = useState<number | 'all'>(120);
+  const [indexChartOffset, setIndexChartOffset] = useState(0);
   const [indexShowMa, setIndexShowMa] = useState(true);
   const [indexShowBoll, setIndexShowBoll] = useState(false);
   const [indexChartCanvasWidth, setIndexChartCanvasWidth] = useState(0);
   const [indexHoverPoint, setIndexHoverPoint] = useState<ChartHoverPoint | null>(null);
   const indexChartShellRef = useRef<HTMLDivElement | null>(null);
   const indexChartCanvasRef = useRef<HTMLDivElement | null>(null);
+  const indexChartDragRef = useRef<{ startX: number; startOffset: number } | null>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const selected = indices.find((index) => index.id === selectedId) ?? null;
@@ -1690,15 +1726,21 @@ function CustomIndexToolPanel() {
     setIsEditorOpen(true);
   }
 
-  function updateComponent(code: string, patch: Partial<IndexComponent>) {
+  function removeComponent(code: string) {
+    setDraft((current) => ({ ...current, components: current.components.filter((component) => component.code !== code) }));
+  }
+
+  function updateManualWeight(code: string, weight: number) {
     setDraft((current) => ({
       ...current,
-      components: current.components.map((component) => (component.code === code ? { ...component, ...patch } : component)),
+      weightMethod: 'custom',
+      components: current.components.map((component) => component.code === code ? { ...component, targetWeight: weight } : component),
     }));
   }
 
-  function removeComponent(code: string) {
-    setDraft((current) => ({ ...current, components: current.components.filter((component) => component.code !== code) }));
+  function getEditableWeight(component: IndexComponent) {
+    const currentWeight = result?.series.at(-1)?.weights[component.code];
+    return Number(((currentWeight ?? ((component.targetWeight ?? 0) / 100)) * 100).toFixed(2));
   }
 
   async function searchStocks() {
@@ -1798,8 +1840,8 @@ function CustomIndexToolPanel() {
   }
 
   const indexChartRows = useMemo(
-    () => result ? buildCustomIndexChartRows(result.series, result.benchmarkSeries, indexChartWindow, indexChartType) : [],
-    [indexChartType, indexChartWindow, result],
+    () => result ? buildCustomIndexChartRows(result.series, result.benchmarkSeries, indexChartWindow, indexChartType, indexChartOffset) : [],
+    [indexChartOffset, indexChartType, indexChartWindow, result],
   );
   const indexChartSlotCount = useMemo(
     () => calculatePlotSlotCount(indexChartRows.length, indexChartType === 'candlestick' ? PRICE_CHART_MIN_CANDLE_SLOTS : 1),
@@ -1854,6 +1896,25 @@ function CustomIndexToolPanel() {
 
   function applyIndexChartZoom(deltaY: number) {
     setIndexChartWindow(calculateZoomWindow(indexChartWindow, result?.series.length ?? indexChartRows.length, deltaY < 0 ? 'in' : 'out'));
+    setIndexChartOffset(0);
+  }
+
+  function startIndexChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    indexChartDragRef.current = { startX: event.clientX, startOffset: indexChartOffset };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveIndexChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = indexChartDragRef.current;
+    if (!drag || !result || indexChartWindow === 'all') return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    setIndexChartOffset(calculatePannedOffset(drag.startOffset, event.clientX - drag.startX, rect.width - PRICE_CHART_Y_AXIS_WIDTH - PRICE_CHART_MARGIN.right, indexChartWindow, result.series.length));
+  }
+
+  function endIndexChartDrag(event: React.PointerEvent<HTMLDivElement>) {
+    indexChartDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   useEffect(() => {
@@ -1866,7 +1927,7 @@ function CustomIndexToolPanel() {
     };
     chartShell.addEventListener('wheel', handleWheel, { passive: false });
     return () => chartShell.removeEventListener('wheel', handleWheel);
-  }, [indexChartRows.length, indexChartWindow, result?.series.length]);
+  }, [indexChartOffset, indexChartRows.length, indexChartWindow, result?.series.length]);
 
   useEffect(() => {
     const canvas = indexChartCanvasRef.current;
@@ -1935,6 +1996,7 @@ function CustomIndexToolPanel() {
                   <CustomIndexKlineChart
                     name={selected.name}
                     benchmarkCode={selected.benchmarkCode}
+                    showBenchmark={selected.showBenchmark ?? true}
                     period={selected.period ?? 'daily'}
                     chartType={indexChartType}
                     chartWindow={indexChartWindow}
@@ -1957,6 +2019,9 @@ function CustomIndexToolPanel() {
                     onChartMouseMove={handleIndexChartMouseMove}
                     onCanvasMouseMove={handleIndexChartCanvasMouseMove}
                     onCanvasMouseLeave={() => setIndexHoverPoint(null)}
+                    onPointerDown={startIndexChartDrag}
+                    onPointerMove={moveIndexChartDrag}
+                    onPointerUp={endIndexChartDrag}
                   />
                   <div className="price-chart custom-index-chart custom-index-chart--legacy">
                     <div className="price-chart__top">
@@ -2005,12 +2070,13 @@ function CustomIndexToolPanel() {
             <label>说明<input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="例如：AI 算力产业链" /></label>
             <label>基准日<div className="custom-index-date-input"><input ref={dateInputRef} type="date" min="2015-01-01" max={new Date().toISOString().slice(0, 10)} value={draft.baseDate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, baseDate: event.target.value }))} /><button type="button" onClick={() => { const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; input?.showPicker?.(); input?.focus(); }}>打开日历</button></div></label>
             <label>对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" /></label>
+            <label className="custom-index-checkbox-label"><input type="checkbox" checked={draft.showBenchmark ?? true} onChange={(event) => setDraft((current) => ({ ...current, showBenchmark: event.target.checked }))} /><span>在图中显示基准</span></label>
             <label>行情周期<select value={draft.period ?? 'daily'} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as IndexBarPeriod }))}>{KLINE_PERIODS.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}</select></label>
             <label>权重方式<select value={draft.weightMethod} onChange={(event) => setDraft((current) => ({ ...current, weightMethod: event.target.value as CustomIndexConfig['weightMethod'] }))}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>
-          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0).toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><span>对应市值</span><span>当前权重</span><span>操作</span></div>{draft.components.map((component) => <div className="custom-index-component" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b>{draft.weightMethod === 'custom' ? <input aria-label={`${component.name}目标权重`} type="number" min="0" max="100" step="0.1" value={component.targetWeight ?? 0} onChange={(event) => updateComponent(component.code, { targetWeight: Number(event.target.value) })} /> : <span className="custom-index-auto-weight">自动</span>}<button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></div>)}</div>
+          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0).toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><span>对应市值</span><span>当前权重</span><span>操作</span></div>{draft.components.map((component) => <div className="custom-index-component" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><input aria-label={`${component.name}当前权重`} type="number" min="0" max="100" step="0.1" value={getEditableWeight(component)} onChange={(event) => updateManualWeight(component.code, Number(event.target.value))} /><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></div>)}</div>
           <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button><button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
         </div>
       ) : null}

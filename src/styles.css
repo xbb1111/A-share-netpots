@@ -1004,6 +1004,12 @@ h2 {
 .price-chart__canvas {
   position: relative;
   height: 430px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.price-chart__canvas:active {
+  cursor: grabbing;
 }
 
 .price-cursor-line {
@@ -1703,6 +1709,20 @@ h2 {
   color: #f2d69b;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.custom-index-checkbox-label {
+  display: flex !important;
+  align-items: center;
+  align-self: end;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--muted);
+}
+
+.custom-index-checkbox-label input {
+  min-height: auto;
+  accent-color: var(--gold);
 }
 
 .custom-index-search {
