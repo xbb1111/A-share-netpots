@@ -1662,21 +1662,23 @@ function CustomIndexKlineChart({
           {chartType === 'candlestick' ? (
             <ComposedChart data={rows} margin={PRICE_CHART_MARGIN} onMouseMove={onChartMouseMove} onMouseLeave={onCanvasMouseLeave}>
               {renderCommonChartChrome([], null, hoverPoint, priceDomain, xDomain, xTicks, (value) => tickLabels.get(value) ?? '', false)}
+              <YAxis yAxisId="benchmark" hide domain={['auto', 'auto']} />
               {drawdownWindow ? <>
                 <ReferenceArea x1={rows.find((row) => row.seriesIndex === drawdownWindow.peakIndex)?.plotX} x2={rows.find((row) => row.seriesIndex === drawdownWindow.troughIndex)?.plotX} y1={priceDomain[0]} y2={priceDomain[1]} fill="#c7646d" fillOpacity={0.12} ifOverflow="extendDomain" />
                 <ReferenceLine x={rows.find((row) => row.seriesIndex === drawdownWindow.peakIndex)?.plotX} stroke="#f2d69b" strokeDasharray="4 4" label={{ value: `峰值 ${drawdownWindow.peakValue.toFixed(2)}`, fill: '#f2d69b', fontSize: 11, position: 'top' }} />
                 <ReferenceLine x={rows.find((row) => row.seriesIndex === drawdownWindow.troughIndex)?.plotX} stroke="#e8a8ae" strokeDasharray="4 4" label={{ value: `低点 ${drawdownWindow.troughValue.toFixed(2)}`, fill: '#e8a8ae', fontSize: 11, position: 'insideBottom' }} />
               </> : null}
               <Line name="收盘净值" type="monotone" dataKey="close" dot={false} stroke="transparent" strokeWidth={1} activeDot={false} />
-              {showBenchmark ? <Line name={`基准 ${benchmarkCode ?? ''}`} type="monotone" dataKey="benchmark" dot={false} stroke="#5eb6c9" strokeWidth={1.5} connectNulls /> : null}
+              {showBenchmark ? <Line yAxisId="benchmark" name={`基准 ${benchmarkCode ?? ''}`} type="monotone" dataKey="benchmark" dot={false} stroke="#5eb6c9" strokeWidth={1.5} connectNulls /> : null}
               {renderIndicatorLines({ showMa, showBoll })}
             </ComposedChart>
           ) : (
             <RechartsLineChart data={rows} margin={PRICE_CHART_MARGIN} onMouseMove={onChartMouseMove} onMouseLeave={onCanvasMouseLeave}>
               {renderCommonChartChrome([], null, hoverPoint, priceDomain, xDomain, xTicks, (value) => tickLabels.get(value) ?? '', false)}
+              <YAxis yAxisId="benchmark" hide domain={['auto', 'auto']} />
               {drawdownWindow ? <ReferenceArea x1={rows.find((row) => row.seriesIndex === drawdownWindow.peakIndex)?.plotX} x2={rows.find((row) => row.seriesIndex === drawdownWindow.troughIndex)?.plotX} y1={priceDomain[0]} y2={priceDomain[1]} fill="#c7646d" fillOpacity={0.12} ifOverflow="extendDomain" /> : null}
               {chartType === 'area' ? <Area type="monotone" dataKey="close" name="模拟净值" stroke="#d6aa5c" fill="#d6aa5c" fillOpacity={0.16} dot={false} /> : <Line type="monotone" dataKey="close" name="模拟净值" stroke="#d6aa5c" strokeWidth={2} dot={false} />}
-              {showBenchmark ? <Line type="monotone" dataKey="benchmark" name={`基准 ${benchmarkCode ?? ''}`} stroke="#5eb6c9" strokeWidth={1.5} dot={false} connectNulls /> : null}
+              {showBenchmark ? <Line yAxisId="benchmark" type="monotone" dataKey="benchmark" name={`基准 ${benchmarkCode ?? ''}`} stroke="#5eb6c9" strokeWidth={1.5} dot={false} connectNulls /> : null}
               {renderIndicatorLines({ showMa, showBoll })}
             </RechartsLineChart>
           )}
@@ -1698,6 +1700,7 @@ function CustomIndexToolPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
   const [benchmarkSuggestions, setBenchmarkSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [benchmarkInput, setBenchmarkInput] = useState('');
   const [weightInputValues, setWeightInputValues] = useState<Record<string, string>>({});
   const [componentSort, setComponentSort] = useState<'manual' | 'marketCap' | 'price' | 'pe' | 'weight'>('manual');
   const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
@@ -1741,8 +1744,12 @@ function CustomIndexToolPanel() {
   }
 
   useEffect(() => {
-    const query = (draft.benchmarkCode ?? '').trim();
-    if (!isEditorOpen || !query || /^\d{6}$/.test(query)) {
+    setBenchmarkInput(selected?.benchmarkCode ?? '');
+  }, [selectedId]);
+
+  useEffect(() => {
+    const query = benchmarkInput.trim();
+    if (!selected || !query || /^\d{6}$/.test(query)) {
       setBenchmarkSuggestions([]);
       return;
     }
@@ -1752,7 +1759,20 @@ function CustomIndexToolPanel() {
       if (!isStale) setBenchmarkSuggestions(items);
     }, 250);
     return () => { isStale = true; window.clearTimeout(timer); };
-  }, [draft.benchmarkCode, isEditorOpen]);
+  }, [benchmarkInput, selectedId]);
+
+  function updateSelectedBenchmark(code: string) {
+    if (!selected || !/^\d{6}$/.test(code.trim())) return;
+    const benchmarkCode = code.trim();
+    setBenchmarkInput(benchmarkCode);
+    setBenchmarkSuggestions([]);
+    persist(indices.map((index) => index.id === selected.id ? { ...index, benchmarkCode, updatedAt: new Date().toISOString() } : index));
+  }
+
+  function updateSelectedBenchmarkVisibility(showBenchmark: boolean) {
+    if (!selected) return;
+    persist(indices.map((index) => index.id === selected.id ? { ...index, showBenchmark, updatedAt: new Date().toISOString() } : index));
+  }
 
   function removeComponent(code: string) {
     setDraft((current) => ({ ...current, components: current.components.filter((component) => component.code !== code) }));
@@ -1900,14 +1920,6 @@ function CustomIndexToolPanel() {
       setError(caught instanceof Error ? caught.message : '预览计算失败');
     }
   }, [draft.baseDate, draft.components, draft.rebalanceFrequency, draft.weightMethod, editingId, result?.marketData, selected, selectedId]);
-
-  useEffect(() => {
-    if (!editingId || editingId !== selectedId || !selected || draft.benchmarkCode === selected.benchmarkCode) return;
-    const timer = window.setTimeout(() => {
-      void calculateSelected({ ...selected, ...draft } as StoredCustomIndex);
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [draft.benchmarkCode, editingId, selected, selectedId]);
 
   function duplicateSelected() {
     if (!selected) return;
@@ -2083,10 +2095,15 @@ function CustomIndexToolPanel() {
                     <div><span>年化波动</span><strong>{formatMetricPercent(result.metrics.annualizedVolatility)}</strong></div>
                     <button type="button" className={`custom-index-metric-button${activeMetric === 'drawdown' ? ' custom-index-metric-button--active' : ''}`} onClick={() => { setActiveMetric((current) => current === 'drawdown' ? null : 'drawdown'); setIndexChartWindow('all'); }}><span>最大回撤 · 点击查看区间</span><strong className="negative">-{(result.metrics.maxDrawdown * 100).toFixed(2)}%</strong></button>
                   </div>
+                  <div className="custom-index-benchmark-toolbar">
+                    <label><span>对比基准</span><input value={benchmarkInput} onChange={(event) => setBenchmarkInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') updateSelectedBenchmark(benchmarkInput); }} onBlur={() => { if (/^\d{6}$/.test(benchmarkInput.trim())) updateSelectedBenchmark(benchmarkInput); }} placeholder="输入代码或名称，例如 588000" /></label>
+                    <label className="custom-index-benchmark-toggle"><input type="checkbox" checked={selected.showBenchmark ?? true} onChange={(event) => updateSelectedBenchmarkVisibility(event.target.checked)} /><span>在图中显示基准</span></label>
+                    {benchmarkSuggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => updateSelectedBenchmark(suggestion.code)}>{suggestion.name} {suggestion.code}</button>)}
+                  </div>
                   <CustomIndexKlineChart
                     name={selected.name}
-                    benchmarkCode={editingId === selected.id ? draft.benchmarkCode : selected.benchmarkCode}
-                    showBenchmark={editingId === selected.id ? draft.showBenchmark ?? true : selected.showBenchmark ?? true}
+                    benchmarkCode={selected.benchmarkCode}
+                    showBenchmark={selected.showBenchmark ?? true}
                     period={selected.period ?? 'daily'}
                     chartType={indexChartType}
                     chartWindow={indexChartWindow}
@@ -2159,8 +2176,6 @@ function CustomIndexToolPanel() {
             <label>名称<input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>说明<input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="例如：AI 算力产业链" /></label>
             <label>基准日<div className="custom-index-date-input"><input ref={dateInputRef} type="date" min="2015-01-01" max={new Date().toISOString().slice(0, 10)} value={draft.baseDate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, baseDate: event.target.value }))} /><button type="button" onClick={() => { const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; input?.showPicker?.(); input?.focus(); }}>打开日历</button></div></label>
-            <label className="custom-index-benchmark-field">对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" />{benchmarkSuggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => { setDraft((current) => ({ ...current, benchmarkCode: suggestion.code })); setBenchmarkSuggestions([]); }}>{suggestion.name} {suggestion.code}</button>)}</label>
-            <label className="custom-index-checkbox-label"><input type="checkbox" checked={draft.showBenchmark ?? true} onChange={(event) => setDraft((current) => ({ ...current, showBenchmark: event.target.checked }))} /><span>在图中显示基准</span></label>
             <label>权重方式<select value={draft.weightMethod} onChange={(event) => setDraft((current) => ({ ...current, weightMethod: event.target.value as CustomIndexConfig['weightMethod'] }))}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>

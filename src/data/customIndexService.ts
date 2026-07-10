@@ -17,13 +17,13 @@ export type CustomIndexData = {
 async function fetchQuote(code: string, fetcher: Fetcher) {
   const url = new URL('https://push2.eastmoney.com/api/qt/stock/get');
   url.searchParams.set('secid', getSecid(code));
-  url.searchParams.set('fields', 'f2,f9,f116');
+  url.searchParams.set('fields', 'f43,f162,f116');
   const response = await fetcher(url.toString());
   if (!response.ok) return { price: null, pe: null, marketCap: null };
-  const payload = (await response.json()) as { data?: { f2?: number; f9?: number; f116?: number } };
+  const payload = (await response.json()) as { data?: { f43?: number; f162?: number; f116?: number } };
   return {
-    price: typeof payload.data?.f2 === 'number' && payload.data.f2 > 0 ? payload.data.f2 : null,
-    pe: typeof payload.data?.f9 === 'number' ? payload.data.f9 : null,
+    price: typeof payload.data?.f43 === 'number' && payload.data.f43 > 0 ? payload.data.f43 / 100 : null,
+    pe: typeof payload.data?.f162 === 'number' ? payload.data.f162 / 100 : null,
     marketCap: typeof payload.data?.f116 === 'number' && payload.data.f116 > 0 ? payload.data.f116 : null,
   };
 }

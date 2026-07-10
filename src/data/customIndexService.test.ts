@@ -9,7 +9,7 @@ describe('custom index market data service', () => {
       if (input.includes('stock/kline/get')) {
         return { ok: true, json: async () => ({ data: { code: '600000', name: '甲', klines: ['2026-01-02,10,10,10,10,1,1,0'] } }) };
       }
-      return { ok: true, json: async () => ({ data: { f2: 12.34, f9: 18.5, f116: 123456789 } }) };
+      return { ok: true, json: async () => ({ data: { f43: 1234, f162: 1850, f116: 123456789 } }) };
     };
 
     const result = await fetchCustomIndexData([{ code: '600000', name: '甲', industry: '金融' }], fetcher);

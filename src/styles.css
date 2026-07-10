@@ -1494,6 +1494,46 @@ h2 {
   margin-top: 18px;
 }
 
+.custom-index-benchmark-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 182, 201, 0.22);
+  border-radius: 7px;
+  background: rgba(8, 16, 24, 0.42);
+}
+
+.custom-index-benchmark-toolbar > label:first-child {
+  display: grid;
+  flex: 1 1 280px;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.custom-index-benchmark-toolbar input[type='text'] {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(8, 16, 24, 0.62);
+  color: var(--text);
+}
+
+.custom-index-benchmark-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.custom-index-benchmark-toggle input { accent-color: var(--gold); }
+
 .custom-index-metrics > div {
   display: grid;
   gap: 7px;
