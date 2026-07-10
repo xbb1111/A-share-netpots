@@ -71,7 +71,7 @@ import {
 } from './data/priceDiscipline';
 import type { AlertSignal, DashboardData, TrendDirection } from './data/types';
 import type { KlineData, KlinePeriod, PriceLevelType, SecuritySuggestion } from './data/priceDiscipline';
-import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
+import { calculateIndexMetrics, calculateIndexSeries, calculateTargetWeights, getWeightInputDisplayValue, prepareComponentsForWeightMethod, type CustomIndexConfig, type IndexBarPeriod, type IndexComponent, type PriceBar } from './data/customIndex';
 import { fetchCustomIndexData } from './data/customIndexService';
 import { searchReportSecurities } from './data/financialReportService';
 import {
@@ -1817,12 +1817,25 @@ function CustomIndexToolPanel() {
   }
 
   function getEditableWeight(component: IndexComponent) {
-    const currentWeight = result?.series.at(-1)?.weights[component.code];
-    return Number(((currentWeight ?? ((component.targetWeight ?? 0) / 100)) * 100).toFixed(2));
+    const components = draft.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
+    return Number(getWeightInputDisplayValue(components, draft.weightMethod, component.code));
   }
 
   function getEditableWeightText(component: IndexComponent) {
-    return weightInputValues[component.code] ?? String(getEditableWeight(component));
+    const components = draft.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
+    return getWeightInputDisplayValue(components, draft.weightMethod, component.code, weightInputValues[component.code]);
+  }
+
+  function changeWeightMethod(weightMethod: CustomIndexConfig['weightMethod']) {
+    setWeightInputValues({});
+    setDraft((current) => {
+      const componentsWithMarketCap = current.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
+      return {
+        ...current,
+        weightMethod,
+        components: prepareComponentsForWeightMethod(componentsWithMarketCap, current.weightMethod, weightMethod),
+      };
+    });
   }
 
   function updateWeightInput(component: IndexComponent, value: string) {
@@ -2176,7 +2189,7 @@ function CustomIndexToolPanel() {
             <label>名称<input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>说明<input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="例如：AI 算力产业链" /></label>
             <label>基准日<div className="custom-index-date-input"><input ref={dateInputRef} type="date" min="2015-01-01" max={new Date().toISOString().slice(0, 10)} value={draft.baseDate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, baseDate: event.target.value }))} /><button type="button" onClick={() => { const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; input?.showPicker?.(); input?.focus(); }}>打开日历</button></div></label>
-            <label>权重方式<select value={draft.weightMethod} onChange={(event) => setDraft((current) => ({ ...current, weightMethod: event.target.value as CustomIndexConfig['weightMethod'] }))}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
+            <label>权重方式<select value={draft.weightMethod} onChange={(event) => changeWeightMethod(event.target.value as CustomIndexConfig['weightMethod'])}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>

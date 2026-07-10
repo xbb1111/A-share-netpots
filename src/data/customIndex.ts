@@ -89,6 +89,36 @@ export function calculateTargetWeights(
   return Object.fromEntries(components.map((component) => [component.code, (component.targetWeight ?? 0) / 100]));
 }
 
+export function getWeightInputDisplayValue(
+  components: IndexComponent[],
+  method: WeightMethod,
+  code: string,
+  cachedValue?: string,
+): string {
+  if (method === 'custom' && cachedValue !== undefined) return cachedValue;
+
+  const component = components.find((item) => item.code === code);
+  if (!component) return '0';
+  const percent = method === 'custom'
+    ? component.targetWeight ?? 0
+    : (calculateTargetWeights(components, method)[code] ?? 0) * 100;
+
+  return String(Number(percent.toFixed(2)));
+}
+
+export function prepareComponentsForWeightMethod(
+  components: IndexComponent[],
+  currentMethod: WeightMethod,
+  nextMethod: WeightMethod,
+): IndexComponent[] {
+  if (nextMethod !== 'custom' || currentMethod === 'custom') return components;
+  const weights = calculateTargetWeights(components, currentMethod);
+  return components.map((component) => ({
+    ...component,
+    targetWeight: Number(((weights[component.code] ?? 0) * 100).toFixed(2)),
+  }));
+}
+
 function normalizeHistory(history: PriceBar[]) {
   return [...history]
     .filter((bar) => Number.isFinite(bar.close) && bar.close > 0 && Boolean(bar.date))

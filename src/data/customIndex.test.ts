@@ -3,6 +3,8 @@ import {
   calculateIndexMetrics,
   calculateIndexSeries,
   calculateTargetWeights,
+  getWeightInputDisplayValue,
+  prepareComponentsForWeightMethod,
   validateIndexComponents,
   type CustomIndexConfig,
   type PriceHistory,
@@ -51,6 +53,24 @@ describe('custom index calculation', () => {
         'marketCap',
       ),
     ).toEqual({ AAA: 0.1, BBB: 0.3, CCC: 0.6 });
+  });
+
+  it('ignores stale manual input when switching to automatic weighting', () => {
+    expect(getWeightInputDisplayValue(components, 'equal', 'BBB', '1126.96')).toBe('33.33');
+    expect(
+      getWeightInputDisplayValue(
+        components.map((item, index) => ({ ...item, marketCap: [100, 300, 600][index] })),
+        'marketCap',
+        'BBB',
+        '1126.96',
+      ),
+    ).toBe('30');
+    expect(getWeightInputDisplayValue(components, 'custom', 'BBB', '29.5')).toBe('29.5');
+  });
+
+  it('copies automatic weights when switching back to custom weighting', () => {
+    const marketCapComponents = components.map((item, index) => ({ ...item, marketCap: [100, 300, 600][index] }));
+    expect(prepareComponentsForWeightMethod(marketCapComponents, 'marketCap', 'custom').map((item) => item.targetWeight)).toEqual([10, 30, 60]);
   });
 
   it('aligns dates and calculates a base-100 index', () => {
