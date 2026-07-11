@@ -117,7 +117,7 @@ async function getIndustryCompanies(boardCode) {
   url.searchParams.set('invt', '2');
   url.searchParams.set('fid', 'f3');
   url.searchParams.set('fs', `b:${boardCode}`);
-  url.searchParams.set('fields', 'f12,f14,f2,f3,f20,f62,f100');
+  url.searchParams.set('fields', 'f12,f14,f2,f3,f9,f20,f62,f100');
   const rows = [];
   for (let page = 1; page <= 20; page += 1) {
     url.searchParams.set('pn', String(page));
@@ -133,6 +133,7 @@ async function getIndustryCompanies(boardCode) {
     change: toNullableNumber(row.f3),
     capitalFlow: toNullableNumber(row.f62) === null ? null : Number((Number(row.f62) / 100000000).toFixed(2)),
     marketCap: toNullableNumber(row.f20),
+    pe: toNullableNumber(row.f9),
     industry: String(row.f100 ?? '未分类'),
   }));
 }

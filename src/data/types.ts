@@ -57,6 +57,7 @@ export type IndustryCompany = {
   change: number | null;
   capitalFlow: number | null;
   marketCap: number | null;
+  pe: number | null;
   industry: string;
 };
 
