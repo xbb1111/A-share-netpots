@@ -1,4 +1,5 @@
 import type { IndustryBoard, IndustryCompany, TrendDirection } from './types';
+import { buildFinancialApiUrl } from './financialReportService';
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
@@ -6,7 +7,7 @@ type EastmoneyResponse<T> = { data?: { diff?: T[] } };
 type EastmoneyBoard = { f12: string; f14: string; f3?: number; f62?: number; f104?: number; f128?: string };
 
 export const INDUSTRY_BOARD_LIST_URL =
-  '/api/industry-boards?pn=1&pz=100';
+  buildFinancialApiUrl('/api/industry-boards?pn=1&pz=100');
 
 const companyCache = new Map<string, Promise<IndustryCompany[]>>();
 
@@ -76,7 +77,7 @@ export async function fetchIndustryCompanies(boardCode: string, fetcher: Fetcher
   const cached = companyCache.get(boardCode);
   if (cached) return cached;
 
-  const url = `/api/industry-companies?boardCode=${encodeURIComponent(boardCode)}`;
+  const url = buildFinancialApiUrl(`/api/industry-companies?boardCode=${encodeURIComponent(boardCode)}`);
   const request = fetcher(url)
     .then(async (response) => {
       if (!response.ok) throw new Error('公司行情暂时不可用，请稍后重试。');

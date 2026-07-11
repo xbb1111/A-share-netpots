@@ -15,12 +15,13 @@ import type {
   WatchStock,
 } from './types';
 import { fetchIndustryBoards } from './industryService';
+import { buildFinancialApiUrl } from './financialReportService';
 
 export const EASTMONEY_SOURCE_NAME = '东方财富实时行情';
 const DISPLAY_SOURCE_NAME = '实时行情';
 
 const STOCK_LIST_URL =
-  '/api/market-stocks';
+  buildFinancialApiUrl('/api/market-stocks');
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
