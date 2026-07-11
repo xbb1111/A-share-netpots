@@ -12,6 +12,7 @@ describe('financial-report-api helpers', () => {
   it('proxies and normalizes an industry board constituent response', async () => {
     const fetcher = globalThis.fetch;
     globalThis.fetch = async (url) => {
+      expect(String(url)).toContain('push2delay.eastmoney.com');
       expect(String(url)).toContain('fs=b%3ABK1303');
       return { ok: true, json: async () => ({ data: { diff: [
         { f12: '300750', f14: '宁德时代', f2: 218.6, f3: 2.41, f62: 920000000, f20: 987000000000, f100: '电池' },

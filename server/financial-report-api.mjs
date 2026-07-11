@@ -107,7 +107,7 @@ async function getIndustryCompanies(boardCode) {
   if (!/^BK\d{4}$/.test(boardCode)) {
     throw new Error('Invalid industry board code');
   }
-  const url = new URL('https://push2.eastmoney.com/api/qt/clist/get');
+  const url = new URL('https://push2delay.eastmoney.com/api/qt/clist/get');
   url.searchParams.set('pn', '1');
   url.searchParams.set('pz', '100');
   url.searchParams.set('po', '1');
@@ -139,7 +139,7 @@ async function getIndustryCompanies(boardCode) {
 }
 
 async function getMarketListPage(kind, page) {
-  const url = new URL('https://push2.eastmoney.com/api/qt/clist/get');
+  const url = new URL('https://push2delay.eastmoney.com/api/qt/clist/get');
   url.searchParams.set('pn', String(page));
   url.searchParams.set('pz', kind === 'industry' ? '100' : '24');
   url.searchParams.set('po', '1');
