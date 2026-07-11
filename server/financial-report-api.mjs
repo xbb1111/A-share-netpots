@@ -80,6 +80,15 @@ export async function handleFinancialReportRequest(request) {
       return jsonResponse({ companies: await getIndustryCompanies(boardCode) });
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/industry-boards') {
+      const page = clamp(Math.round(Number(url.searchParams.get('pn') ?? 1)), 1, 20);
+      return jsonResponse(await getMarketListPage('industry', page));
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/market-stocks') {
+      return jsonResponse(await getMarketListPage('stocks', 1));
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/filings/analyze') {
       const body = await readRequestJson(request);
       const code = String(body.code ?? '').trim();
@@ -126,6 +135,21 @@ async function getIndustryCompanies(boardCode) {
     marketCap: toNullableNumber(row.f20),
     industry: String(row.f100 ?? '未分类'),
   }));
+}
+
+async function getMarketListPage(kind, page) {
+  const url = new URL('https://push2.eastmoney.com/api/qt/clist/get');
+  url.searchParams.set('pn', String(page));
+  url.searchParams.set('pz', kind === 'industry' ? '100' : '24');
+  url.searchParams.set('po', '1');
+  url.searchParams.set('np', '1');
+  url.searchParams.set('ut', 'bd1d9ddb04089700cf9c27f6f7426281');
+  url.searchParams.set('fltt', '2');
+  url.searchParams.set('invt', '2');
+  url.searchParams.set('fid', kind === 'industry' ? 'f62' : 'f62');
+  url.searchParams.set('fs', kind === 'industry' ? 'm:90+t:2' : 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23');
+  url.searchParams.set('fields', kind === 'industry' ? 'f12,f14,f3,f62,f104,f128' : 'f12,f14,f2,f3,f62,f100');
+  return fetchJson(url);
 }
 
 function toNullableNumber(value) {

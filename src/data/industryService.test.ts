@@ -27,7 +27,7 @@ describe('industry service', () => {
     const urls: string[] = [];
     const fetcher = async (url: string) => {
       urls.push(url);
-      const page = Number(new URL(url).searchParams.get('pn'));
+      const page = Number(new URL(url, 'https://test.local').searchParams.get('pn'));
       const count = page === 1 ? 100 : page === 2 ? 1 : 0;
       return { ok: true, json: async () => ({ data: { diff: Array.from({ length: count }, (_, index) => ({ f12: `BK${page}${index}`, f14: `行业${page}-${index}`, f3: 0, f62: 0 })) } }) };
     };

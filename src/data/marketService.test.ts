@@ -1,10 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EASTMONEY_SOURCE_NAME, getDashboardData } from './marketService';
 
 describe('getDashboardData', () => {
+  it('stops waiting for stalled market endpoints', async () => {
+    vi.useFakeTimers();
+    const fetcher = async () => new Promise<Pick<Response, 'ok' | 'json'>>(() => {});
+
+    const pendingData = getDashboardData({
+      fetcher,
+      now: new Date('2026-06-29T10:30:00+08:00'),
+      timeoutMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(pendingData).resolves.toMatchObject({ industries: [], watchlist: [] });
+    vi.useRealTimers();
+  });
+
   it('keeps industry data available when the stock endpoint is temporarily unavailable', async () => {
     const fetcher = async (url: string) => {
-      if (!url.includes('fs=m:90+t:2')) throw new Error('stock endpoint unavailable');
+      if (url.includes('/api/market-stocks')) throw new Error('stock endpoint unavailable');
       return { ok: true, json: async () => ({ data: { diff: [{ f12: 'BK1030', f14: '电池', f3: 1.2, f62: 100000000, f104: 30, f128: '示例公司' }] } }) };
     };
 
@@ -19,7 +34,7 @@ describe('getDashboardData', () => {
     const fetcher = async (url: string) => {
       requestedUrls.push(url);
 
-      const payload = url.includes('fs=m:90+t:2')
+      const payload = url.includes('/api/industry-boards')
         ? {
             data: {
               diff: [
@@ -63,13 +78,13 @@ describe('getDashboardData', () => {
     });
     expect(data.source).toBe(EASTMONEY_SOURCE_NAME);
     expect(requestedUrls).toHaveLength(2);
-    expect(requestedUrls.every((url) => url.includes('push2.eastmoney.com'))).toBe(true);
-    expect(requestedUrls.find((url) => url.includes('fs=m:90+t:2'))).toContain('pz=100');
+    expect(requestedUrls.every((url) => url.startsWith('/api/'))).toBe(true);
+    expect(requestedUrls.find((url) => url.includes('/api/industry-boards'))).toContain('pz=100');
   });
 
   it('keeps vendor names out of user-visible data labels', async () => {
     const fetcher = async (url: string) => {
-      const payload = url.includes('fs=m:90+t:2')
+      const payload = url.includes('/api/industry-boards')
         ? { data: { diff: [{ f12: 'BK1030', f14: '电源设备', f3: 2.56, f62: 1840000000, f104: 85, f128: '宁德时代' }] } }
         : { data: { diff: [{ f12: '300750', f14: '宁德时代', f2: 218.6, f3: 2.41, f62: 920000000, f100: '电源设备' }] } };
 

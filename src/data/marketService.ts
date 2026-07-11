@@ -20,14 +20,33 @@ export const EASTMONEY_SOURCE_NAME = '东方财富实时行情';
 const DISPLAY_SOURCE_NAME = '实时行情';
 
 const STOCK_LIST_URL =
-  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=24&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f62,f100';
+  '/api/market-stocks';
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
 type GetDashboardDataOptions = {
   fetcher?: Fetcher;
   now?: Date;
+  timeoutMs?: number;
 };
+
+const DEFAULT_MARKET_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('行情接口请求超时')), timeoutMs);
+    request.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 type EastmoneyResponse<T> = {
   data?: {
@@ -213,9 +232,10 @@ function buildMarketCalendar(now: Date) {
 export async function getDashboardData(options: GetDashboardDataOptions = {}): Promise<DashboardData> {
   const fetcher = options.fetcher ?? fetch;
   const now = options.now ?? new Date();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_MARKET_TIMEOUT_MS;
   const [stocksResult, industriesResult] = await Promise.allSettled([
-    fetchEastmoneyList<EastmoneyStock>(STOCK_LIST_URL, fetcher),
-    fetchIndustryBoards(fetcher),
+    withTimeout(fetchEastmoneyList<EastmoneyStock>(STOCK_LIST_URL, fetcher), timeoutMs),
+    withTimeout(fetchIndustryBoards(fetcher), timeoutMs),
   ]);
   const stocks = stocksResult.status === 'fulfilled' ? stocksResult.value : [];
   const industries = industriesResult.status === 'fulfilled' ? industriesResult.value : [];

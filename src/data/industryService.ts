@@ -6,7 +6,7 @@ type EastmoneyResponse<T> = { data?: { diff?: T[] } };
 type EastmoneyBoard = { f12: string; f14: string; f3?: number; f62?: number; f104?: number; f128?: string };
 
 export const INDUSTRY_BOARD_LIST_URL =
-  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f3,f62,f104,f128';
+  '/api/industry-boards?pn=1&pz=100';
 
 const companyCache = new Map<string, Promise<IndustryCompany[]>>();
 
