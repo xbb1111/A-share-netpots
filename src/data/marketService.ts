@@ -213,10 +213,12 @@ function buildMarketCalendar(now: Date) {
 export async function getDashboardData(options: GetDashboardDataOptions = {}): Promise<DashboardData> {
   const fetcher = options.fetcher ?? fetch;
   const now = options.now ?? new Date();
-  const [stocks, industries] = await Promise.all([
+  const [stocksResult, industriesResult] = await Promise.allSettled([
     fetchEastmoneyList<EastmoneyStock>(STOCK_LIST_URL, fetcher),
     fetchIndustryBoards(fetcher),
   ]);
+  const stocks = stocksResult.status === 'fulfilled' ? stocksResult.value : [];
+  const industries = industriesResult.status === 'fulfilled' ? industriesResult.value : [];
   const watchlist = buildWatchlist(stocks);
   const topThemes = industries.slice(0, 3);
 

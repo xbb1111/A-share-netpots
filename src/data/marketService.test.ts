@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { EASTMONEY_SOURCE_NAME, getDashboardData } from './marketService';
 
 describe('getDashboardData', () => {
+  it('keeps industry data available when the stock endpoint is temporarily unavailable', async () => {
+    const fetcher = async (url: string) => {
+      if (!url.includes('fs=m:90+t:2')) throw new Error('stock endpoint unavailable');
+      return { ok: true, json: async () => ({ data: { diff: [{ f12: 'BK1030', f14: '电池', f3: 1.2, f62: 100000000, f104: 30, f128: '示例公司' }] } }) };
+    };
+
+    const data = await getDashboardData({ fetcher, now: new Date('2026-06-29T10:30:00+08:00') });
+
+    expect(data.industries).toHaveLength(1);
+    expect(data.watchlist).toHaveLength(0);
+  });
+
   it('builds the dashboard from live market API responses instead of static fixtures', async () => {
     const requestedUrls: string[] = [];
     const fetcher = async (url: string) => {
