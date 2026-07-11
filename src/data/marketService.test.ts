@@ -52,6 +52,7 @@ describe('getDashboardData', () => {
     expect(data.source).toBe(EASTMONEY_SOURCE_NAME);
     expect(requestedUrls).toHaveLength(2);
     expect(requestedUrls.every((url) => url.includes('push2.eastmoney.com'))).toBe(true);
+    expect(requestedUrls.find((url) => url.includes('fs=m:90+t:2'))).toContain('pz=100');
   });
 
   it('keeps vendor names out of user-visible data labels', async () => {
