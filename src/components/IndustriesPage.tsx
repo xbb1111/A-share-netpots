@@ -4,7 +4,7 @@ import { SectionHeader } from './SectionHeader';
 import { fetchIndustryCompanies } from '../data/industryService';
 import { getChainBoardMatches, INDUSTRY_CHAINS } from '../data/industryTaxonomy';
 import type { IndustryBoard, IndustryChain, IndustryCompany } from '../data/types';
-import { buildIndustryBubbles } from '../data/industryVisualization';
+import { buildIndustryBubbles, getIndustryBubbleBounds } from '../data/industryVisualization';
 import { IndustryCanvasEditor } from './IndustryCanvasEditor';
 import { createIndustryCanvas, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
 import { loadIndustryCanvases, saveIndustryCanvases } from '../data/industryCanvasStorage';
@@ -151,6 +151,7 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
 
   const cloudBoards = useMemo(() => [...industries].sort((left, right) => (cloudMetric === 'heat' ? right.heat - left.heat : right.change - left.change)), [industries, cloudMetric]);
   const bubbles = useMemo(() => buildIndustryBubbles(cloudBoards, cloudMetric, 920, Math.max(300, Math.ceil(cloudBoards.length / 8) * 120)), [cloudBoards, cloudMetric]);
+  const bubbleBounds = useMemo(() => getIndustryBubbleBounds(bubbles), [bubbles]);
   const sortedCompanies = useMemo(() => sortIndustryCompanies(companies, sortKey, sortDirection), [companies, sortKey, sortDirection]);
   const searchResults = useMemo(() => filterIndustryItems(query, industries, INDUSTRY_CHAINS, companies).slice(0, 10), [query, industries, companies]);
 
@@ -252,7 +253,7 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
           </div>
           <div className="industry-cloud-toolbar"><span>行业云图</span><small>点击行业进入产业链或行业详情</small><div><button type="button" className={cloudMetric === 'heat' ? 'is-active' : ''} onClick={() => setCloudMetric('heat')}>按热度</button><button type="button" className={cloudMetric === 'change' ? 'is-active' : ''} onClick={() => setCloudMetric('change')}>按涨幅</button></div></div>
           <div className="industry-cloud-legend"><span><i className="industry-cloud-legend__up" />上涨</span><span><i className="industry-cloud-legend__down" />下跌</span><span>面积 = {cloudMetric === 'heat' ? '热度' : '涨跌幅'}</span></div>
-          <div className="industry-bubble-map" aria-label="行业行情气泡图"><svg viewBox={`0 0 920 ${Math.max(300, Math.ceil(cloudBoards.length / 8) * 120)}`} role="img">{bubbles.map((bubble) => { const board = cloudBoards.find((item) => item.code === bubble.code)!; const route = findChainRouteForBoard(board, INDUSTRY_CHAINS); return <g key={board.code} className={`industry-bubble industry-bubble--${bubble.tone}`} tabIndex={0} role="button" onClick={() => { if (route) { setChainId(route.chainId); setSelectedNodeId(route.nodeId); setSelectedBoardCode(null); setView('chain'); } else { setSelectedBoardCode(board.code); setView('panorama'); } }}><title>{`${board.name} ${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</title><circle cx={bubble.x} cy={bubble.y} r={bubble.r} /><text x={bubble.x} y={bubble.y - 4}>{board.name.slice(0, 6)}</text><text x={bubble.x} y={bubble.y + 13}>{`${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</text></g>; })}</svg></div>
+          <div className="industry-bubble-map" aria-label="行业行情气泡图"><svg viewBox={`0 0 ${bubbleBounds.width} ${bubbleBounds.height}`} role="img"><defs><filter id="industry-bubble-glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" /></filter></defs>{bubbles.map((bubble, index) => { const board = cloudBoards.find((item) => item.code === bubble.code)!; const route = findChainRouteForBoard(board, INDUSTRY_CHAINS); const activate = () => { if (route) { setChainId(route.chainId); setSelectedNodeId(route.nodeId); setSelectedBoardCode(null); setView('chain'); } else { setSelectedBoardCode(board.code); setView('panorama'); } }; return <g key={board.code} className={`industry-bubble industry-bubble--${bubble.tone}${index < 3 ? ' industry-bubble--featured' : ''}`} tabIndex={0} role="button" onClick={activate} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}><title>{`${board.name} ${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</title>{index < 3 ? <circle className="industry-bubble__halo" cx={bubble.x} cy={bubble.y} r={bubble.r + 8} /> : null}<circle cx={bubble.x} cy={bubble.y} r={bubble.r} /><text x={bubble.x} y={bubble.y - 4}>{board.name.slice(0, 6)}</text><text x={bubble.x} y={bubble.y + 13}>{`${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</text></g>; })}</svg></div>
         </div>
       ) : null}
 
