@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, Factory, RefreshCw, Search } from 'lucide-react';
 import { SectionHeader } from './SectionHeader';
 import { fetchIndustryCompanies } from '../data/industryService';
 import { getChainBoardMatches, INDUSTRY_CHAINS } from '../data/industryTaxonomy';
 import type { IndustryBoard, IndustryChain, IndustryCompany } from '../data/types';
+import { buildIndustryBubbles } from '../data/industryVisualization';
+import { IndustryCanvasEditor } from './IndustryCanvasEditor';
+import { createIndustryCanvas, type IndustryCanvas } from '../data/industryCanvas';
+import { loadIndustryCanvases, saveIndustryCanvases } from '../data/industryCanvasStorage';
 
 type IndustryView = 'market' | 'panorama' | 'chain';
 type CompanySort = 'change' | 'capitalFlow' | 'marketCap';
@@ -111,11 +115,11 @@ function formatMarketCap(value: number | null) {
   return `${(value / 100_000_000).toFixed(value >= 100_000_000_000 ? 0 : 1)} 亿`;
 }
 
-export function IndustriesPage({ industries }: { industries: IndustryBoard[] }) {
+export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }: { industries: IndustryBoard[]; onOpenPriceTool?: (code: string, name: string) => void; onOpenIndexTool?: (node: import('../data/industryCanvas').CanvasNode, method: 'equal' | 'marketCap') => void }) {
   const route = useMemo(readRouteState, []);
   const [view, setView] = useState<IndustryView>(route.view);
   const [query, setQuery] = useState('');
-  const [level, setLevel] = useState<1 | 2 | 3>(1);
+  const [expandedBoards, setExpandedBoards] = useState<Set<string>>(new Set());
   const [selectedBoardCode, setSelectedBoardCode] = useState<string | null>(route.boardCode ?? industries[0]?.code ?? null);
   const [chainId, setChainId] = useState(route.chainId);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(route.nodeId);
@@ -125,6 +129,9 @@ export function IndustriesPage({ industries }: { industries: IndustryBoard[] }) 
   const [sortKey, setSortKey] = useState<CompanySort>('change');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [cloudMetric, setCloudMetric] = useState<CloudMetric>('heat');
+  const [isCanvasOpen, setIsCanvasOpen] = useState(false);
+  const [expandedStages, setExpandedStages] = useState<Set<string>>(() => new Set(['upstream', 'midstream', 'downstream']));
+  const [canvas, setCanvas] = useState<IndustryCanvas>(() => loadIndustryCanvases()[0] ?? createIndustryCanvas({ id: crypto.randomUUID(), name: '自定义产业链', root: { id: crypto.randomUUID(), name: '上游 / 中游 / 下游', stocks: [], children: [] } }));
 
   const chain = INDUSTRY_CHAINS.find((item) => item.id === chainId) ?? INDUSTRY_CHAINS[0];
   const selectedNode = chain?.stages.flatMap((stage) => stage.nodes).find((node) => node.id === selectedNodeId);
@@ -133,10 +140,8 @@ export function IndustriesPage({ industries }: { industries: IndustryBoard[] }) 
   const activeBoardCode = view === 'chain' ? (selectedBoard && chainMatches.some((item) => item.code === selectedBoard.code) ? selectedBoard.code : chainMatches[0]?.code ?? null) : selectedBoardCode;
   const activeBoard = industries.find((board) => board.code === activeBoardCode) ?? null;
 
-  const visibleBoards = useMemo(() => industries
-    .filter((board) => board.level === level)
-    .filter((board) => !query.trim() || `${board.name} ${board.code}`.toLocaleLowerCase('zh-CN').includes(query.trim().toLocaleLowerCase('zh-CN'))), [industries, level, query]);
   const cloudBoards = useMemo(() => [...industries].sort((left, right) => (cloudMetric === 'heat' ? right.heat - left.heat : right.change - left.change)), [industries, cloudMetric]);
+  const bubbles = useMemo(() => buildIndustryBubbles(cloudBoards, cloudMetric, 920, Math.max(300, Math.ceil(cloudBoards.length / 8) * 120)), [cloudBoards, cloudMetric]);
   const sortedCompanies = useMemo(() => sortIndustryCompanies(companies, sortKey, sortDirection), [companies, sortKey, sortDirection]);
   const searchResults = useMemo(() => filterIndustryItems(query, industries, INDUSTRY_CHAINS, companies).slice(0, 10), [query, industries, companies]);
 
@@ -223,7 +228,7 @@ export function IndustriesPage({ industries }: { industries: IndustryBoard[] }) 
       </div>
 
       <div className="industry-view-tabs" role="tablist" aria-label="行业研究视图">
-        {([['market', '今日行情'], ['panorama', '行业全景'], ['chain', '产业链主题']] as const).map(([key, label]) => (
+        {([['market', '最新行情'], ['panorama', '行业全景'], ['chain', '产业链主题']] as const).map(([key, label]) => (
           <button type="button" role="tab" aria-selected={view === key} className={view === key ? 'is-active' : ''} onClick={() => setView(key)} key={key}>{label}</button>
         ))}
       </div>
@@ -238,35 +243,42 @@ export function IndustriesPage({ industries }: { industries: IndustryBoard[] }) 
           </div>
           <div className="industry-cloud-toolbar"><span>行业云图</span><small>点击行业进入产业链或行业详情</small><div><button type="button" className={cloudMetric === 'heat' ? 'is-active' : ''} onClick={() => setCloudMetric('heat')}>按热度</button><button type="button" className={cloudMetric === 'change' ? 'is-active' : ''} onClick={() => setCloudMetric('change')}>按涨幅</button></div></div>
           <div className="industry-cloud-legend"><span><i className="industry-cloud-legend__up" />上涨</span><span><i className="industry-cloud-legend__down" />下跌</span><span>面积 = {cloudMetric === 'heat' ? '热度' : '涨跌幅'}</span></div>
-          <div className="industry-cloud" aria-label="行业行情云图">{cloudBoards.map((board) => { const route = findChainRouteForBoard(board, INDUSTRY_CHAINS); const span = getIndustryCloudSpan(board, cloudMetric, industries); return <button type="button" className={`industry-cloud__tile ${board.change >= 0 ? 'industry-cloud__tile--up' : 'industry-cloud__tile--down'}`} style={{ gridColumn: `span ${span}`, opacity: `${0.6 + Math.min(Math.abs(board.change), 10) / 25}` }} key={board.code} title={route ? '点击进入产业链' : '点击进入行业全景'} onClick={() => { if (route) { setChainId(route.chainId); setSelectedNodeId(route.nodeId); setSelectedBoardCode(null); setView('chain'); } else { setSelectedBoardCode(board.code); setView('panorama'); } }}><strong>{board.name}</strong><span>{board.change >= 0 ? '+' : ''}{board.change.toFixed(2)}%</span><small>{cloudMetric === 'heat' ? `热度 ${board.heat}` : `${board.capitalFlow >= 0 ? '+' : ''}${board.capitalFlow.toFixed(1)} 亿`}</small></button>; })}</div>
+          <div className="industry-bubble-map" aria-label="行业行情气泡图"><svg viewBox={`0 0 920 ${Math.max(300, Math.ceil(cloudBoards.length / 8) * 120)}`} role="img">{bubbles.map((bubble) => { const board = cloudBoards.find((item) => item.code === bubble.code)!; const route = findChainRouteForBoard(board, INDUSTRY_CHAINS); return <g key={board.code} className={`industry-bubble industry-bubble--${bubble.tone}`} tabIndex={0} role="button" onClick={() => { if (route) { setChainId(route.chainId); setSelectedNodeId(route.nodeId); setSelectedBoardCode(null); setView('chain'); } else { setSelectedBoardCode(board.code); setView('panorama'); } }}><title>{`${board.name} ${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</title><circle cx={bubble.x} cy={bubble.y} r={bubble.r} /><text x={bubble.x} y={bubble.y - 4}>{board.name.slice(0, 6)}</text><text x={bubble.x} y={bubble.y + 13}>{`${board.change >= 0 ? '+' : ''}${board.change.toFixed(2)}%`}</text></g>; })}</svg></div>
         </div>
       ) : null}
 
       {view === 'panorama' ? (
         <div className="industry-panorama">
-          <aside className="industry-directory">
-            <div className="industry-level-tabs">{([1, 2, 3] as const).map((item) => <button type="button" className={level === item ? 'is-active' : ''} onClick={() => setLevel(item)} key={item}>{item} 级</button>)}</div>
-            <p>{visibleBoards.length} 个行业 · 点击查看成分公司</p>
-            <div>{visibleBoards.map((board) => <button type="button" className={activeBoardCode === board.code ? 'is-active' : ''} onClick={() => setSelectedBoardCode(board.code)} key={board.code}><span><strong>{board.name}</strong><small>{board.code}</small></span><b className={board.change >= 0 ? 'positive' : 'negative'}>{board.change >= 0 ? '+' : ''}{board.change.toFixed(2)}%</b></button>)}</div>
-          </aside>
+          <aside className="industry-directory"><p>行业树 · 涨跌数据为最近可用交易日 · 点击上级展开，叶节点查看成分公司</p><IndustryTree boards={industries} expanded={expandedBoards} selectedCode={activeBoardCode} onToggle={(code) => setExpandedBoards((current) => { const next = new Set(current); next.has(code) ? next.delete(code) : next.add(code); return next; })} onSelect={setSelectedBoardCode} /></aside>
           <IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} />
         </div>
       ) : null}
 
       {view === 'chain' && chain ? (
         <div className="industry-chain-view">
+          <div className="industry-hot-chains industry-hot-chains--top"><div><span>热门产业链</span><small>点击后刷新上中下游、匹配板块与公司标的</small></div><div>{INDUSTRY_CHAINS.map((item) => <button type="button" className={item.id === chain.id ? 'is-active' : ''} onClick={() => selectChainTheme(item.id)} key={item.id}>{item.name}</button>)}</div></div>
+          <div className="industry-canvas-disclosure"><button type="button" className="industry-canvas-disclosure__toggle" aria-expanded={isCanvasOpen} onClick={() => setIsCanvasOpen((current) => !current)}><span><strong>我的产业链</strong><small>新建、编辑、保存或加载分享链接</small></span><b>{isCanvasOpen ? '收起 −' : '展开 +'}</b></button>{isCanvasOpen ? <IndustryCanvasEditor canvas={canvas} onChange={setCanvas} onSave={(next) => { setCanvas(next); saveIndustryCanvases([next]); }} onStock={onOpenPriceTool} onBranch={onOpenIndexTool} /> : null}</div>
           <div className="industry-chain-intro"><div><span>投资主题</span><h3>{chain.name}</h3><p>{chain.summary}</p></div><small>主题标签允许一家公司出现在多个节点，不等同于互斥行业分类。</small></div>
-          <div className="industry-chain" aria-label={`${chain.name}产业链`}>
-            {chain.stages.map((stage, stageIndex) => <section key={stage.id}><header><span>{String(stageIndex + 1).padStart(2, '0')}</span><div><strong>{stage.name}</strong><small>{stage.nodes.length} 个细分板块</small></div></header><div>{stage.nodes.map((node) => <button type="button" className={selectedNodeId === node.id ? 'is-active' : ''} onClick={() => { setSelectedNodeId(node.id); setSelectedBoardCode(null); }} key={node.id}><strong>{node.name}</strong><small>{node.description}</small></button>)}</div></section>)}
-          </div>
+          <div className="industry-mindmap" aria-label={`${chain.name}产业链思维导图`}><div className="industry-mindmap__root"><span>产业链主题</span><strong>{chain.name}</strong></div><div className="industry-mindmap__branches">{chain.stages.map((stage, stageIndex) => { const isOpen = expandedStages.has(stage.id); return <section className={`industry-mindmap__branch industry-mindmap__branch--${stage.id}`} key={stage.id}><button type="button" className="industry-mindmap__stage" aria-expanded={isOpen} onClick={() => setExpandedStages((current) => { const next = new Set(current); isOpen ? next.delete(stage.id) : next.add(stage.id); return next; })}><span>{String(stageIndex + 1).padStart(2, '0')}</span><div><strong>{stage.name}</strong><small>{stage.nodes.length} 个细分环节</small></div><b>{isOpen ? '−' : '+'}</b></button>{isOpen ? <div className="industry-mindmap__nodes">{stage.nodes.map((node) => <button type="button" className={selectedNodeId === node.id ? 'is-active' : ''} onClick={() => { setSelectedNodeId(node.id); setSelectedBoardCode(null); }} key={node.id}><strong>{node.name}</strong><small>{node.description}</small></button>)}</div> : null}</section>; })}</div></div>
           {selectedNode ? <div className="industry-chain-detail"><div className="industry-chain-detail__boards"><span>匹配行情板块</span>{chainMatches.length > 0 ? chainMatches.map((board) => <button type="button" className={activeBoardCode === board.code ? 'is-active' : ''} onClick={() => setSelectedBoardCode(board.code)} key={board.code}>{board.name}<small>{board.code}</small></button>) : <p>当前行情分类中未匹配到板块，产业链知识结构仍可正常浏览。</p>}</div><IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} /></div> : <div className="industry-empty"><Factory size={28} /><strong>选择一个产业链节点</strong><p>查看对应细分板块和真实上市公司。</p></div>}
-          <div className="industry-hot-chains"><div><span>热门产业链</span><small>点击后刷新上中下游、匹配板块与公司标的</small></div><div>{INDUSTRY_CHAINS.map((item) => <button type="button" className={item.id === chain.id ? 'is-active' : ''} onClick={() => selectChainTheme(item.id)} key={item.id}>{item.name}</button>)}</div></div>
         </div>
       ) : null}
 
       <footer className="industry-disclaimer">行业行情来自公开实时接口；产业链为研究归纳，不构成投资建议。分类口径与公司归属可能随主营业务和指数规则调整。</footer>
     </section>
   );
+}
+
+function IndustryTree({ boards, expanded, selectedCode, onToggle, onSelect }: { boards: IndustryBoard[]; expanded: Set<string>; selectedCode: string | null; onToggle: (code: string) => void; onSelect: (code: string) => void }) {
+  const children = (parentCode?: string) => boards.filter((board) => board.parentCode === parentCode);
+  const roots = boards.filter((board) => board.level === 1 || !board.parentCode);
+  const render = (board: IndustryBoard, depth: number): ReactNode => {
+    const nested = children(board.code);
+    const hasChildren = nested.length > 0;
+    const open = expanded.has(board.code);
+    return <li key={board.code}><button type="button" className={selectedCode === board.code ? 'is-active' : ''} style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => hasChildren ? onToggle(board.code) : onSelect(board.code)}><span>{hasChildren ? (open ? '▾ ' : '▸ ') : '• '}{board.name}<small>{board.code}</small></span><b className={board.change >= 0 ? 'positive' : 'negative'}>{board.change >= 0 ? '+' : ''}{board.change.toFixed(2)}%</b></button>{hasChildren && open ? <ul>{nested.map((child) => render(child, depth + 1))}</ul> : null}</li>;
+  };
+  return <ul className="industry-tree" role="tree">{roots.map((board) => render(board, 0))}</ul>;
 }
 
 function IndustryCompanyPanel({ board, companies, loading, error, sortKey, direction, onSort, onRetry }: { board: IndustryBoard | null; companies: IndustryCompany[]; loading: boolean; error: string | null; sortKey: CompanySort; direction: SortDirection; onSort: (key: CompanySort) => void; onRetry: () => void }) {

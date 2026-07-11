@@ -46,6 +46,7 @@ import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
+import { collectBranchStocks, type CanvasNode } from './data/industryCanvas';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -710,6 +711,12 @@ function PriceDisciplinePanel() {
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const chartCanvasRef = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<PriceToolConfig>(getInitialPriceToolConfig);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+    const code = params.get('code');
+    const name = params.get('name');
+    if (code) setConfig((current) => ({ ...current, codeInput: `${name ?? ''} ${code}`.trim(), activeCode: code, activeName: name ?? current.activeName }));
+  }, []);
   const [chartCanvasWidth, setChartCanvasWidth] = useState(0);
   const [klineData, setKlineData] = useState<KlineData | null>(null);
   const [isLoadingKline, setIsLoadingKline] = useState(false);
@@ -2218,9 +2225,10 @@ function ToolboxPage() {
   });
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
-  const [isPriceToolOpen, setIsPriceToolOpen] = useState(false);
+  const initialTool = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tool');
+  const [isPriceToolOpen, setIsPriceToolOpen] = useState(initialTool === 'price');
   const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
-  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(false);
+  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(initialTool === 'index');
 
   useEffect(() => {
     window.localStorage.setItem('alpha-desk-tools', JSON.stringify(tools));
@@ -2332,7 +2340,7 @@ function ToolboxPage() {
 
 function renderPage(page: PageKey, data: DashboardData) {
   if (page === 'industries') {
-    return <IndustriesPage industries={data.industries} />;
+    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onOpenIndexTool={(node: CanvasNode, method) => { const components = collectBranchStocks(node).map((stock) => ({ code: stock.code, name: stock.name, industry: stock.industry ?? '产业链', marketCap: stock.marketCap ?? undefined, targetWeight: 0 })); const index = createCustomIndex({ name: `${node.name} 指数`, description: '由产业链画布临时预览确认后保存', tags: ['产业链'], components, weightMethod: method, rebalanceFrequency: 'monthly', baseValue: 100 }); saveCustomIndices([...loadCustomIndices(), index]); window.location.hash = 'toolbox?tool=index'; }} />;
   }
 
   if (page === 'watchlist') {
