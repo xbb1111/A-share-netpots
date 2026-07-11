@@ -226,7 +226,7 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
       </div>
 
       <div className="industry-view-tabs" role="tablist" aria-label="行业研究视图">
-        {([['market', '今日行情'], ['panorama', '行业全景'], ['chain', '产业链主题']] as const).map(([key, label]) => (
+        {([['market', '最新行情'], ['panorama', '行业全景'], ['chain', '产业链主题']] as const).map(([key, label]) => (
           <button type="button" role="tab" aria-selected={view === key} className={view === key ? 'is-active' : ''} onClick={() => setView(key)} key={key}>{label}</button>
         ))}
       </div>
@@ -247,7 +247,7 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
 
       {view === 'panorama' ? (
         <div className="industry-panorama">
-          <aside className="industry-directory"><p>行业树 · 点击上级展开，叶节点查看成分公司</p><IndustryTree boards={industries} expanded={expandedBoards} selectedCode={activeBoardCode} onToggle={(code) => setExpandedBoards((current) => { const next = new Set(current); next.has(code) ? next.delete(code) : next.add(code); return next; })} onSelect={setSelectedBoardCode} /></aside>
+          <aside className="industry-directory"><p>行业树 · 涨跌数据为最近可用交易日 · 点击上级展开，叶节点查看成分公司</p><IndustryTree boards={industries} expanded={expandedBoards} selectedCode={activeBoardCode} onToggle={(code) => setExpandedBoards((current) => { const next = new Set(current); next.has(code) ? next.delete(code) : next.add(code); return next; })} onSelect={setSelectedBoardCode} /></aside>
           <IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} />
         </div>
       ) : null}
