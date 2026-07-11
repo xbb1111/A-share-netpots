@@ -23,4 +23,12 @@ describe('industry taxonomy', () => {
 
     expect(matches.map((item) => item.code)).toEqual(['BK1033', 'BK0992']);
   });
+
+  it('uses verified board codes when a supply-chain label does not exactly match the market taxonomy', () => {
+    const matches = getChainBoardMatches('new-energy-vehicle', 'thermal-management', [
+      { name: '制冷空调设备', code: 'BK1400' },
+    ]);
+
+    expect(matches.map((item) => item.code)).toEqual(['BK1400']);
+  });
 });

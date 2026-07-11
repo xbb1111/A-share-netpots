@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IndustryBoard, IndustryCompany } from '../data/types';
 import { INDUSTRY_CHAINS } from '../data/industryTaxonomy';
-import { filterIndustryItems, findChainRouteForBoard, getIndustryCloudSpan, sortIndustryCompanies } from './IndustriesPage';
+import { filterIndustryItems, findChainRouteForBoard, getIndustryCloudSpan, makeIndustryIndexNode, sortIndustryCompanies } from './IndustriesPage';
 
 const boards: IndustryBoard[] = [
   { code: 'BK1033', name: '电池', level: 1, change: 2, heat: 88, capitalFlow: 12, valuation: '强势', momentum: '上涨 2.00%', trend: 'up' },
@@ -13,6 +13,12 @@ const companies: IndustryCompany[] = [
 ];
 
 describe('IndustriesPage helpers', () => {
+  it('builds a previewable industry index from loaded constituents', () => {
+    const node = makeIndustryIndexNode(boards[0], companies);
+    expect(node.name).toBe('电池');
+    expect(node.stocks).toContainEqual(expect.objectContaining({ code: '300750', change: 2.4 }));
+  });
+
   it('finds industries, chain nodes, and companies with one query', () => {
     const result = filterIndustryItems('电池', boards, INDUSTRY_CHAINS, companies);
     expect(result.some((item) => item.kind === 'industry' && item.label === '电池')).toBe(true);

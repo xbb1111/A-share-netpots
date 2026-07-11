@@ -118,6 +118,8 @@
 .industry-chain-detail__boards button.is-active { border-color: rgba(214,170,92,.34); background: rgba(214,170,92,.09); }
 .industry-chain-detail__boards small { color: var(--muted); }
 .industry-chain-detail__boards p { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.industry-company-panel__actions { display: flex; align-items: center; gap: 10px; }
+.industry-company-panel__actions button { padding: 7px 9px; border: 1px solid rgba(214,170,92,.38); border-radius: 6px; background: rgba(214,170,92,.1); color: #f5e3bd; cursor: pointer; }
 .industry-disclaimer { padding: 11px 20px 16px; border-top: 1px solid rgba(148,163,184,.08); color: #71818d; font-size: 10px; }
 .spin { animation: industry-spin 1s linear infinite; }
 @keyframes industry-spin { to { transform: rotate(360deg); } }
