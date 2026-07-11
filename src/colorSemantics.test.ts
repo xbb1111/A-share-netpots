@@ -17,6 +17,13 @@ describe('market color semantics', () => {
     expect(app).toContain("row.close >= row.open ? '#c7646d' : '#38d6b2'");
   });
 
+  it('defines the approved industry workbench layout regions', () => {
+    expect(styles).toContain('.industry-workbench');
+    expect(styles).toContain('.industry-directory');
+    expect(styles).toContain('.industry-chain');
+    expect(styles).toContain('.industry-company-table');
+  });
+
   it('renders moving averages as subdued dashed auxiliary lines', () => {
     expect(app).toContain('dataKey="ma5"');
     expect(app).toContain('strokeDasharray="8 4"');

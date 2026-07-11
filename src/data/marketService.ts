@@ -14,15 +14,13 @@ import type {
   TrendDirection,
   WatchStock,
 } from './types';
+import { fetchIndustryBoards } from './industryService';
 
 export const EASTMONEY_SOURCE_NAME = '东方财富实时行情';
 const DISPLAY_SOURCE_NAME = '实时行情';
 
 const STOCK_LIST_URL =
   'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=24&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f62,f100';
-
-const SECTOR_LIST_URL =
-  'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=12&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f3,f62,f104,f128,f140';
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
@@ -86,7 +84,7 @@ function toTrend(change: number): TrendDirection {
   return 'flat';
 }
 
-function buildIndustries(sectors: EastmoneySector[]): IndustrySignal[] {
+export function buildIndustries(sectors: EastmoneySector[]): IndustrySignal[] {
   const maxFlow = Math.max(...sectors.map((sector) => Math.abs(sector.f62)), 1);
 
   return sectors.map((sector) => {
@@ -215,11 +213,10 @@ function buildMarketCalendar(now: Date) {
 export async function getDashboardData(options: GetDashboardDataOptions = {}): Promise<DashboardData> {
   const fetcher = options.fetcher ?? fetch;
   const now = options.now ?? new Date();
-  const [stocks, sectors] = await Promise.all([
+  const [stocks, industries] = await Promise.all([
     fetchEastmoneyList<EastmoneyStock>(STOCK_LIST_URL, fetcher),
-    fetchEastmoneyList<EastmoneySector>(SECTOR_LIST_URL, fetcher),
+    fetchIndustryBoards(fetcher),
   ]);
-  const industries = buildIndustries(sectors);
   const watchlist = buildWatchlist(stocks);
   const topThemes = industries.slice(0, 3);
 

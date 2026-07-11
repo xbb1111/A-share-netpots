@@ -9,6 +9,42 @@ import {
 } from './financial-report-api.mjs';
 
 describe('financial-report-api helpers', () => {
+  it('proxies and normalizes an industry board constituent response', async () => {
+    const fetcher = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      expect(String(url)).toContain('fs=b%3ABK1303');
+      return { ok: true, json: async () => ({ data: { diff: [
+        { f12: '300750', f14: '宁德时代', f2: 218.6, f3: 2.41, f62: 920000000, f20: 987000000000, f100: '电池' },
+      ] } }) };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/industry-companies?boardCode=BK1303'));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ companies: [{ code: '300750', name: '宁德时代', capitalFlow: 9.2 }] });
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
+
+  it('loads every constituent page for large industry boards', async () => {
+    const fetcher = globalThis.fetch;
+    const urls = [];
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      const page = Number(new URL(url).searchParams.get('pn'));
+      const count = page === 1 ? 100 : 1;
+      return { ok: true, json: async () => ({ data: { diff: Array.from({ length: count }, (_, index) => ({ f12: `${page}${String(index).padStart(5, '0')}`, f14: `公司${page}-${index}`, f2: 10, f3: 0, f62: 0, f20: 100000000, f100: '测试行业' })) } }) };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/industry-companies?boardCode=BK1303'));
+      const payload = await response.json();
+      expect(payload.companies).toHaveLength(101);
+      expect(urls).toHaveLength(2);
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
+
   it('falls back to a visible code candidate when a valid code has no search hit', async () => {
     const fetcher = globalThis.fetch;
     globalThis.fetch = async () => ({

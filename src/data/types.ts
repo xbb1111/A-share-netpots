@@ -19,6 +19,47 @@ export type IndustrySignal = {
   trend: TrendDirection;
 };
 
+export type IndustryStageId = 'upstream' | 'midstream' | 'downstream';
+
+export type IndustryChainNode = {
+  id: string;
+  name: string;
+  description: string;
+  matchKeywords: string[];
+  boardCodes?: string[];
+};
+
+export type IndustryChainStage = {
+  id: IndustryStageId;
+  name: string;
+  nodes: IndustryChainNode[];
+};
+
+export type IndustryChain = {
+  id: string;
+  name: string;
+  summary: string;
+  stages: IndustryChainStage[];
+};
+
+export type IndustryBoard = IndustrySignal & {
+  code: string;
+  level: 1 | 2 | 3;
+  change: number;
+  parentCode?: string;
+  leaderName?: string;
+};
+
+export type IndustryCompany = {
+  code: string;
+  name: string;
+  price: number | null;
+  change: number | null;
+  capitalFlow: number | null;
+  marketCap: number | null;
+  industry: string;
+};
+
 export type WatchStock = {
   code: string;
   name: string;
@@ -67,7 +108,7 @@ export type DashboardData = {
   displaySource: string;
   lastUpdated: string;
   overview: OverviewMetric[];
-  industries: IndustrySignal[];
+  industries: IndustryBoard[];
   watchlist: WatchStock[];
   alerts: AlertSignal[];
   marketCalendar: CalendarItem[];

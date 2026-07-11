@@ -45,6 +45,7 @@ import {
 import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
+import { IndustriesPage } from './components/IndustriesPage';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -177,7 +178,7 @@ const MOVING_AVERAGE_PERIODS = [5, 10, 20, 60] as const;
 const PRICE_TOOL_STORAGE_KEY = 'alpha-desk-price-discipline';
 
 function getInitialPage(): PageKey {
-  const hash = window.location.hash.replace('#', '');
+  const hash = window.location.hash.replace('#', '').split('?')[0];
   return NAV_ITEMS.some((item) => item.key === hash) ? (hash as PageKey) : 'overview';
 }
 
@@ -267,7 +268,7 @@ function OverviewPage({ data }: { data: DashboardData }) {
   );
 }
 
-function IndustriesPage({ data }: { data: DashboardData }) {
+export function LegacyIndustriesPage({ data }: { data: DashboardData }) {
   return (
     <section className="panel" id="industries">
       <SectionHeader icon={Factory} eyebrow="Sector Radar" title="行业强弱与资金热度" />
@@ -2331,7 +2332,7 @@ function ToolboxPage() {
 
 function renderPage(page: PageKey, data: DashboardData) {
   if (page === 'industries') {
-    return <IndustriesPage data={data} />;
+    return <IndustriesPage industries={data.industries} />;
   }
 
   if (page === 'watchlist') {

@@ -75,6 +75,11 @@ export async function handleFinancialReportRequest(request) {
       return jsonResponse(await getFinancialMetrics(code, { period, includePeers, peerCount }));
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/industry-companies') {
+      const boardCode = (url.searchParams.get('boardCode') ?? '').trim();
+      return jsonResponse({ companies: await getIndustryCompanies(boardCode) });
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/filings/analyze') {
       const body = await readRequestJson(request);
       const code = String(body.code ?? '').trim();
@@ -87,6 +92,44 @@ export async function handleFinancialReportRequest(request) {
   } catch (error) {
     return jsonResponse({ message: error instanceof Error ? error.message : 'Unknown API error' }, 500);
   }
+}
+
+async function getIndustryCompanies(boardCode) {
+  if (!/^BK\d{4}$/.test(boardCode)) {
+    throw new Error('Invalid industry board code');
+  }
+  const url = new URL('https://push2.eastmoney.com/api/qt/clist/get');
+  url.searchParams.set('pn', '1');
+  url.searchParams.set('pz', '100');
+  url.searchParams.set('po', '1');
+  url.searchParams.set('np', '1');
+  url.searchParams.set('ut', 'bd1d9ddb04089700cf9c27f6f7426281');
+  url.searchParams.set('fltt', '2');
+  url.searchParams.set('invt', '2');
+  url.searchParams.set('fid', 'f3');
+  url.searchParams.set('fs', `b:${boardCode}`);
+  url.searchParams.set('fields', 'f12,f14,f2,f3,f20,f62,f100');
+  const rows = [];
+  for (let page = 1; page <= 20; page += 1) {
+    url.searchParams.set('pn', String(page));
+    const payload = await fetchJson(url);
+    const pageRows = payload.data?.diff ?? [];
+    rows.push(...pageRows);
+    if (pageRows.length < 100) break;
+  }
+  return rows.map((row) => ({
+    code: String(row.f12),
+    name: String(row.f14 ?? row.f12),
+    price: toNullableNumber(row.f2),
+    change: toNullableNumber(row.f3),
+    capitalFlow: toNullableNumber(row.f62) === null ? null : Number((Number(row.f62) / 100000000).toFixed(2)),
+    marketCap: toNullableNumber(row.f20),
+    industry: String(row.f100 ?? '未分类'),
+  }));
+}
+
+function toNullableNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function jsonResponse(payload, status = 200) {
