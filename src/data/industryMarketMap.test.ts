@@ -82,4 +82,16 @@ describe('industry market constellation layout', () => {
     expect(Math.min(...layout.items.map((item) => item.r))).toBeGreaterThanOrEqual(20);
     expect(layout.bounds.height).toBeGreaterThan(360);
   });
+
+  it('marks featured cells from the currently selected metric', () => {
+    const metricBoards = [
+      { code: 'HOT', name: '软件', level: 2 as const, heat: 100, change: 0.1 },
+      { code: 'MOVE', name: '银行', level: 2 as const, heat: 1, change: -8 },
+      { code: 'MID', name: '医药', level: 2 as const, heat: 50, change: 2 },
+      { code: 'LOW', name: '煤炭', level: 2 as const, heat: 2, change: 1 },
+    ];
+    expect(buildIndustryMarketMap(metricBoards, 'heat', 800, 440).items.find((item) => item.code === 'HOT')?.featured).toBe(true);
+    expect(buildIndustryMarketMap(metricBoards, 'change', 800, 440).items.find((item) => item.code === 'HOT')?.featured).toBe(false);
+    expect(buildIndustryMarketMap(metricBoards, 'change', 800, 440).items.find((item) => item.code === 'MOVE')?.featured).toBe(true);
+  });
 });

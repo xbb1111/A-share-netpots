@@ -53,11 +53,14 @@ export function buildIndustryMarketMap<T extends MarketBoard>(boards: T[], metri
   const groupWidth = (bounds.width - outer * 2 - gap * (columns - 1)) / columns;
   const groups: IndustryMarketGroup[] = []; const items: IndustryMarketItem[] = [];
   const allValues = boards.map((board) => metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change));
-  const maxValue = Math.max(...allValues, 1); const featured = new Set([...boards].sort((a, b) => b.heat - a.heat || a.code.localeCompare(b.code)).slice(0, 3).map((b) => b.code));
+  const maxValue = Math.max(...allValues, 1);
+  const metricValue = (board: MarketBoard) => metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change);
+  const featured = new Set([...boards].sort((a, b) => metricValue(b) - metricValue(a) || a.code.localeCompare(b.code)).slice(0, 3).map((b) => b.code));
   const radiusFor = (board: MarketBoard) => 20 + 16 * Math.sqrt((metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change)) / maxValue);
   const desiredHeights = entries.map(([, bucket]) => {
     const occupiedArea = bucket.boards.reduce((sum, board) => sum + Math.PI * (radiusFor(board) + 3) ** 2, 0);
-    return Math.max(180, 48 + occupiedArea * 2.25 / Math.max(100, groupWidth - 16));
+    const packingAllowance = bucket.boards.length > 40 ? 2.25 : 1.4;
+    return Math.max(180, 48 + occupiedArea * packingAllowance / Math.max(100, groupWidth - 16));
   });
   const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(...desiredHeights.slice(row * columns, (row + 1) * columns)));
   const contentHeight = outer * 2 + gap * (rows - 1) + rowHeights.reduce((sum, value) => sum + value, 0);
