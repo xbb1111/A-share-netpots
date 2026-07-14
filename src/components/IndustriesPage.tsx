@@ -6,8 +6,9 @@ import { getChainBoardMatches, INDUSTRY_CHAINS } from '../data/industryTaxonomy'
 import type { IndustryBoard, IndustryChain, IndustryCompany } from '../data/types';
 import { IndustryMarketMap } from './IndustryMarketMap';
 import { IndustryCanvasEditor } from './IndustryCanvasEditor';
-import { createIndustryCanvas, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
+import { collectBranchStocks, createIndustryCanvas, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
 import { loadIndustryCanvases, saveIndustryCanvases } from '../data/industryCanvasStorage';
+import type { IndustryIndexPreviewRequest } from '../data/industryIndexPreview';
 
 type IndustryView = 'market' | 'panorama' | 'chain';
 type CompanySort = 'change' | 'capitalFlow' | 'marketCap';
@@ -76,6 +77,12 @@ export function makeIndustryIndexNode(board: IndustryBoard, companies: IndustryC
   };
 }
 
+export function createIndustryPreviewRequest(node: CanvasNode, method: IndustryIndexPreviewRequest['method'], sourcePath: string[]) {
+  const totalCompanyCount = collectBranchStocks(node).filter((stock) => /^\d{6}$/.test(stock.code.trim())).length;
+  if (totalCompanyCount === 0) return { disabled: true as const, message: '暂无可计算公司，无法预览指数', request: null };
+  return { disabled: false as const, message: '', request: { node, method, sourcePath, totalCompanyCount } satisfies IndustryIndexPreviewRequest };
+}
+
 export function findChainRouteForBoard(board: IndustryBoard, chains: IndustryChain[]): { chainId: string; nodeId: string } | null {
   const candidates: Array<{ chainId: string; nodeId: string; score: number }> = [];
   for (const chain of chains) {
@@ -124,7 +131,7 @@ function formatMarketCap(value: number | null) {
   return `${(value / 100_000_000).toFixed(value >= 100_000_000_000 ? 0 : 1)} 亿`;
 }
 
-export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }: { industries: IndustryBoard[]; onOpenPriceTool?: (code: string, name: string) => void; onOpenIndexTool?: (node: import('../data/industryCanvas').CanvasNode, method: 'equal' | 'marketCap') => void }) {
+export function IndustriesPage({ industries, onOpenPriceTool, onPreviewIndex, onOpenIndexTool }: { industries: IndustryBoard[]; onOpenPriceTool?: (code: string, name: string) => void; onPreviewIndex?: (request: IndustryIndexPreviewRequest) => void; onOpenIndexTool?: (node: CanvasNode, method: 'equal' | 'marketCap') => void }) {
   const route = useMemo(readRouteState, []);
   const [view, setView] = useState<IndustryView>(route.view);
   const [query, setQuery] = useState('');
@@ -236,6 +243,13 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
     }
   }
 
+  function previewIndex(node: CanvasNode, method: IndustryIndexPreviewRequest['method'], sourcePath: string[]) {
+    const result = createIndustryPreviewRequest(node, method, sourcePath);
+    if (!result.request) return;
+    if (onPreviewIndex) onPreviewIndex(result.request);
+    else onOpenIndexTool?.(result.request.node, result.request.method);
+  }
+
   return (
     <section className="panel industry-workbench" id="industries">
       <div className="industry-workbench__heading">
@@ -270,17 +284,17 @@ export function IndustriesPage({ industries, onOpenPriceTool, onOpenIndexTool }:
       {view === 'panorama' ? (
         <div className="industry-panorama">
           <aside className="industry-directory"><p>行业树 · 涨跌数据为最近可用交易日 · 点击上级展开，叶节点查看成分公司</p><IndustryTree boards={industries} expanded={expandedBoards} selectedCode={activeBoardCode} onToggle={(code) => setExpandedBoards((current) => { const next = new Set(current); next.has(code) ? next.delete(code) : next.add(code); return next; })} onSelect={setSelectedBoardCode} /></aside>
-          <IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} onPreviewIndex={(board, rows) => onOpenIndexTool?.(makeIndustryIndexNode(board, rows), 'equal')} />
+          <IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} onPreviewIndex={(board, rows) => previewIndex(makeIndustryIndexNode(board, rows), 'equal', ['行业全景', board.name])} />
         </div>
       ) : null}
 
       {view === 'chain' && chain ? (
         <div className="industry-chain-view">
           <div className="industry-hot-chains industry-hot-chains--top"><div><span>热门产业链</span><small>点击后刷新上中下游、匹配板块与公司标的</small></div><div>{INDUSTRY_CHAINS.map((item) => <button type="button" className={item.id === chain.id ? 'is-active' : ''} onClick={() => selectChainTheme(item.id)} key={item.id}>{item.name}</button>)}</div></div>
-          <div className="industry-canvas-disclosure"><button type="button" className="industry-canvas-disclosure__toggle" aria-expanded={isCanvasOpen} onClick={() => setIsCanvasOpen((current) => !current)}><span><strong>我的产业链</strong><small>新建、编辑、保存或加载分享链接</small></span><b>{isCanvasOpen ? '收起 −' : '展开 +'}</b></button>{isCanvasOpen ? <IndustryCanvasEditor canvas={canvas} onChange={setCanvas} onSave={(next) => { setCanvas(next); saveIndustryCanvases([next]); }} onStock={onOpenPriceTool} onBranch={onOpenIndexTool} /> : null}</div>
+          <div className="industry-canvas-disclosure"><button type="button" className="industry-canvas-disclosure__toggle" aria-expanded={isCanvasOpen} onClick={() => setIsCanvasOpen((current) => !current)}><span><strong>我的产业链</strong><small>新建、编辑、保存或加载分享链接</small></span><b>{isCanvasOpen ? '收起 −' : '展开 +'}</b></button>{isCanvasOpen ? <IndustryCanvasEditor canvas={canvas} onChange={setCanvas} onSave={(next) => { setCanvas(next); saveIndustryCanvases([next]); }} onStock={onOpenPriceTool} onBranch={(node, method) => previewIndex(node, method, [canvas.name, node.name])} /> : null}</div>
           <div className="industry-chain-intro"><div><span>投资主题</span><h3>{chain.name}</h3><p>{chain.summary}</p></div><small>主题标签允许一家公司出现在多个节点，不等同于互斥行业分类。</small></div>
           <div className="industry-mindmap" aria-label={`${chain.name}产业链思维导图`}><div className="industry-mindmap__root"><span>产业链主题</span><strong>{chain.name}</strong></div><div className="industry-mindmap__branches">{chain.stages.map((stage, stageIndex) => { const isOpen = expandedStages.has(stage.id); return <section className={`industry-mindmap__branch industry-mindmap__branch--${stage.id}`} key={stage.id}><button type="button" className="industry-mindmap__stage" aria-expanded={isOpen} onClick={() => setExpandedStages((current) => { const next = new Set(current); isOpen ? next.delete(stage.id) : next.add(stage.id); return next; })}><span>{String(stageIndex + 1).padStart(2, '0')}</span><div><strong>{stage.name}</strong><small>{stage.nodes.length} 个细分环节</small></div><b>{isOpen ? '−' : '+'}</b></button>{isOpen ? <div className="industry-mindmap__nodes">{stage.nodes.map((node) => <button type="button" className={selectedNodeId === node.id ? 'is-active' : ''} onClick={() => { setSelectedNodeId(node.id); setSelectedBoardCode(null); }} key={node.id}><strong>{node.name}</strong><small>{node.description}</small></button>)}</div> : null}</section>; })}</div></div>
-          {selectedNode ? <div className="industry-chain-detail"><div className="industry-chain-detail__boards"><span>匹配行情板块</span>{chainMatches.length > 0 ? chainMatches.map((board) => <button type="button" className={activeBoardCode === board.code ? 'is-active' : ''} onClick={() => setSelectedBoardCode(board.code)} key={board.code}>{board.name}<small>{board.code}</small></button>) : <p>当前行情分类中未匹配到板块，产业链知识结构仍可正常浏览。</p>}</div><IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} onPreviewIndex={(board, rows) => onOpenIndexTool?.(makeIndustryIndexNode(board, rows), 'equal')} /></div> : <div className="industry-empty"><Factory size={28} /><strong>选择一个产业链节点</strong><p>查看对应细分板块和真实上市公司。</p></div>}
+          {selectedNode ? <div className="industry-chain-detail"><div className="industry-chain-detail__boards"><span>匹配行情板块</span>{chainMatches.length > 0 ? chainMatches.map((board) => <button type="button" className={activeBoardCode === board.code ? 'is-active' : ''} onClick={() => setSelectedBoardCode(board.code)} key={board.code}>{board.name}<small>{board.code}</small></button>) : <p>当前行情分类中未匹配到板块，产业链知识结构仍可正常浏览。</p>}</div><IndustryCompanyPanel board={activeBoard} companies={sortedCompanies} loading={companiesLoading} error={companiesError} sortKey={sortKey} direction={sortDirection} onSort={toggleSort} onRetry={() => retryCompanies(activeBoardCode)} onPreviewIndex={(board, rows) => previewIndex(makeIndustryIndexNode(board, rows), 'equal', [chain.name, selectedNode.name, board.name])} /></div> : <div className="industry-empty"><Factory size={28} /><strong>选择一个产业链节点</strong><p>查看对应细分板块和真实上市公司。</p></div>}
         </div>
       ) : null}
 
@@ -303,5 +317,5 @@ function IndustryTree({ boards, expanded, selectedCode, onToggle, onSelect }: { 
 
 function IndustryCompanyPanel({ board, companies, loading, error, sortKey, direction, onSort, onRetry, onPreviewIndex }: { board: IndustryBoard | null; companies: IndustryCompany[]; loading: boolean; error: string | null; sortKey: CompanySort; direction: SortDirection; onSort: (key: CompanySort) => void; onRetry: () => void; onPreviewIndex?: (board: IndustryBoard, companies: IndustryCompany[]) => void }) {
   if (!board) return <div className="industry-empty"><Factory size={28} /><strong>请选择行业或细分板块</strong><p>成分公司将在选择后按需加载。</p></div>;
-  return <section className="industry-company-panel"><header><div><span>板块详情</span><h3>{board.name}</h3><p>{board.momentum} · 主力净流入 {board.capitalFlow >= 0 ? '+' : ''}{board.capitalFlow.toFixed(2)} 亿</p></div><div className="industry-company-panel__actions">{companies.length > 0 ? <button type="button" onClick={() => onPreviewIndex?.(board, companies)}>预览行业指数</button> : null}<b className={board.change >= 0 ? 'positive' : 'negative'}>{board.change >= 0 ? '+' : ''}{board.change.toFixed(2)}%</b></div></header>{loading ? <div className="industry-state"><RefreshCw className="spin" size={20} /><span>正在加载板块成分公司…</span></div> : error ? <div className="industry-state industry-state--error"><AlertTriangle size={20} /><span>{error}</span><button type="button" onClick={onRetry}>重试</button></div> : companies.length === 0 ? <div className="industry-state"><span>该板块暂未返回成分公司。</span></div> : <div className="industry-company-table"><div className="industry-company-table__head"><span>公司</span><button type="button" onClick={() => onSort('change')}>涨跌幅 {sortKey === 'change' ? direction === 'desc' ? '↓' : '↑' : ''}</button><button type="button" onClick={() => onSort('capitalFlow')}>资金流 {sortKey === 'capitalFlow' ? direction === 'desc' ? '↓' : '↑' : ''}</button><button type="button" onClick={() => onSort('marketCap')}>市值 {sortKey === 'marketCap' ? direction === 'desc' ? '↓' : '↑' : ''}</button><span>现价</span></div>{companies.map((company) => <div className="industry-company-row" key={company.code}><span><strong>{company.name}</strong><small>{company.code} · {company.industry}</small></span><b className={(company.change ?? 0) >= 0 ? 'positive' : 'negative'}>{company.change === null ? '—' : `${company.change >= 0 ? '+' : ''}${company.change.toFixed(2)}%`}</b><b>{company.capitalFlow === null ? '—' : `${company.capitalFlow >= 0 ? '+' : ''}${company.capitalFlow.toFixed(2)} 亿`}</b><b>{formatMarketCap(company.marketCap)}</b><b>{formatOptional(company.price)}</b></div>)}</div>}</section>;
+  return <section className="industry-company-panel"><header><div><span>板块详情</span><h3>{board.name}</h3><p>{board.momentum} · 主力净流入 {board.capitalFlow >= 0 ? '+' : ''}{board.capitalFlow.toFixed(2)} 亿</p></div><div className="industry-company-panel__actions"><button type="button" disabled={loading || companies.length === 0} title={companies.length === 0 ? '暂无可计算公司，无法预览指数' : undefined} onClick={() => onPreviewIndex?.(board, companies)}>{loading ? '加载公司中…' : '预览行业指数'}</button><b className={board.change >= 0 ? 'positive' : 'negative'}>{board.change >= 0 ? '+' : ''}{board.change.toFixed(2)}%</b></div></header>{loading ? <div className="industry-state"><RefreshCw className="spin" size={20} /><span>正在加载板块成分公司…</span></div> : error ? <div className="industry-state industry-state--error"><AlertTriangle size={20} /><span>{error}</span><button type="button" onClick={onRetry}>重试</button></div> : companies.length === 0 ? <div className="industry-state"><span>该板块暂无可计算公司，无法预览指数。</span></div> : <div className="industry-company-table"><div className="industry-company-table__head"><span>公司</span><button type="button" onClick={() => onSort('change')}>涨跌幅 {sortKey === 'change' ? direction === 'desc' ? '↓' : '↑' : ''}</button><button type="button" onClick={() => onSort('capitalFlow')}>资金流 {sortKey === 'capitalFlow' ? direction === 'desc' ? '↓' : '↑' : ''}</button><button type="button" onClick={() => onSort('marketCap')}>市值 {sortKey === 'marketCap' ? direction === 'desc' ? '↓' : '↑' : ''}</button><span>现价</span></div>{companies.map((company) => <div className="industry-company-row" key={company.code}><span><strong>{company.name}</strong><small>{company.code} · {company.industry}</small></span><b className={(company.change ?? 0) >= 0 ? 'positive' : 'negative'}>{company.change === null ? '—' : `${company.change >= 0 ? '+' : ''}${company.change.toFixed(2)}%`}</b><b>{company.capitalFlow === null ? '—' : `${company.capitalFlow >= 0 ? '+' : ''}${company.capitalFlow.toFixed(2)} 亿`}</b><b>{formatMarketCap(company.marketCap)}</b><b>{formatOptional(company.price)}</b></div>)}</div>}</section>;
 }
