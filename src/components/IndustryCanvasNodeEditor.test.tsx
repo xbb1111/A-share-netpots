@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CanvasNode, IndustryCanvas } from '../data/industryCanvas';
-import { calculateFitTransform, clampCanvasZoom, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldStartCanvasPan } from './IndustryCanvasMindMap';
-import { getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
+import { calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldStartCanvasPan } from './IndustryCanvasMindMap';
+import { createLatestAsyncGuard, getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
 
 const leaf: CanvasNode = { id: 'leaf', name: '铜箔', stocks: [{ code: ' 300750 ', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [] };
 const root: CanvasNode = { id: 'root', name: '新能源', stocks: [{ code: '300750', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [leaf, { id: 'other', name: '储能', stocks: [{ code: 'bad', name: '无代码', change: null, marketCap: null, pe: null }], children: [] }] };
@@ -26,10 +26,11 @@ describe('canvas keyboard navigation', () => {
     expect(getCanvasKeyboardTarget(root, 'other', 'ArrowUp')).toBe('leaf');
   });
 
-  it('maps Tab shortcuts outside form inputs and ignores them inside inputs', () => {
-    expect(getCanvasKeyboardAction('Tab', false, false)).toBe('child');
-    expect(getCanvasKeyboardAction('Tab', true, false)).toBe('sibling');
-    expect(getCanvasKeyboardAction('Tab', false, true)).toBeNull();
+  it('maps Insert shortcuts outside form inputs without taking over Tab', () => {
+    expect(getCanvasKeyboardAction('Insert', false, false)).toBe('child');
+    expect(getCanvasKeyboardAction('Insert', true, false)).toBe('sibling');
+    expect(getCanvasKeyboardAction('Tab', false, false)).toBeNull();
+    expect(getCanvasKeyboardAction('Insert', false, true)).toBeNull();
   });
 });
 
@@ -42,13 +43,30 @@ describe('canvas pan and fit helpers', () => {
   });
 
   it('fits wide and tall layouts with finite centered transforms and clamps zoom', () => {
-    expect(clampCanvasZoom(.1)).toBe(.55);
-    expect(clampCanvasZoom(9)).toBe(1.5);
     for (const result of [calculateFitTransform(800, 500, 2000, 300, 24), calculateFitTransform(800, 500, 300, 2000, 24)]) {
-      expect(result.scale).toBeGreaterThanOrEqual(.55);
+      expect(result.scale).toBeGreaterThanOrEqual(.1);
       expect(result.scale).toBeLessThanOrEqual(1.5);
       expect(Number.isFinite(result.x) && Number.isFinite(result.y)).toBe(true);
     }
+    const fit = calculateFitTransform(500, 500, 2000, 300, 24);
+    expect(2000 * fit.scale).toBeLessThanOrEqual(452);
+  });
+
+  it('clears drag only for the active pointer', () => {
+    const drag = createCanvasDragState(7, 10, 20, 0, 0);
+    expect(endCanvasDrag(drag, 8)).toBe(drag);
+    expect(endCanvasDrag(drag, 7)).toBeNull();
+  });
+});
+
+describe('latest async guard', () => {
+  it('invalidates stale and disposed requests', () => {
+    const guard = createLatestAsyncGuard();
+    const first = guard.next(); const second = guard.next();
+    expect(guard.isCurrent(first)).toBe(false);
+    expect(guard.isCurrent(second)).toBe(true);
+    guard.dispose();
+    expect(guard.isCurrent(second)).toBe(false);
   });
 });
 
@@ -80,6 +98,9 @@ describe('IndustryCanvasNodeEditor markup', () => {
   it('marks an expanded editor as the active tree item and focuses a newly-created name', () => {
     const map = renderToStaticMarkup(<IndustryCanvasMindMap canvas={canvas} selectedId="root" expandedId="root" onSelect={() => undefined} onExpand={() => undefined} onChange={() => undefined} />);
     expect(map).toMatch(/role="treeitem"[^>]*aria-selected="true"/);
+    expect(map).toContain('role="group"');
+    expect(map).not.toMatch(/role="treeitem"[^>]*><form/);
+    expect(map).toContain('tabindex="-1"');
     const editor = renderToStaticMarkup(<IndustryCanvasNodeEditor canvas={canvas} node={root} path={[root]} focusName onChange={() => undefined} onClose={() => undefined} />);
     expect(editor).toContain('autofocus=""');
     expect(editor).toContain('直接标的');

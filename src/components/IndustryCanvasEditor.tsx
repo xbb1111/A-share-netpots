@@ -38,7 +38,7 @@ export function IndustryCanvasEditor({ canvas, onChange, onSave, onStock, onBran
     setShareInput('');
   };
   return <section className="industry-canvas-editor">
-    <header><div><span>我的产业链</span><h3>{canvas.name}</h3><small>在画布节点内直接编辑；方向键导航，Tab 新建下级，Shift+Tab 新建同级。</small></div><div>
+    <header><div><span>我的产业链</span><h3>{canvas.name}</h3><small>在画布节点内直接编辑；方向键导航，Insert 新建下级，Shift+Insert 新建同级。</small></div><div>
       <button type="button" onClick={() => navigator.clipboard?.writeText(share.value)}><Link size={15} />分享</button>
       <button type="button" onClick={() => onSave(canvas)}><Save size={15} />保存</button>
     </div></header>
