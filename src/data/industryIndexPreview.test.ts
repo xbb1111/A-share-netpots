@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CUSTOM_INDEX_STORAGE_KEY } from './customIndexStorage';
 import {
   buildIndustryIndexPreview,
+  consumeIndustryIndexPreview,
   loadIndustryIndexPreview,
   saveIndustryIndexPreview,
   toIndustryIndexPreviewHash,
@@ -70,6 +71,14 @@ describe('industry index preview', () => {
     expect(loadIndustryIndexPreview('same', session)?.totalCompanyCount).toBe(99);
     expect(local.getItem(CUSTOM_INDEX_STORAGE_KEY)).toBeNull();
     expect(session.getItem(CUSTOM_INDEX_STORAGE_KEY)).toBeNull();
+  });
+
+  it('consumes a saved preview so refresh cannot load it again', () => {
+    const session = fakeStorage();
+    const preview = buildIndustryIndexPreview(branch, 'equal', ['行业'], () => 'consume-me');
+    saveIndustryIndexPreview(preview, session);
+    expect(consumeIndustryIndexPreview('consume-me', session)).toEqual(preview);
+    expect(loadIndustryIndexPreview('consume-me', session)).toBeNull();
   });
 
   it('returns null for missing or corrupt preview JSON', () => {

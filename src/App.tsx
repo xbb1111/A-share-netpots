@@ -84,8 +84,8 @@ import {
   saveCustomIndices,
   type StoredCustomIndex,
 } from './data/customIndexStorage';
-import { buildIndustryIndexPreview, loadIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
-import { parseToolboxRoute } from './data/toolboxRoute';
+import { buildIndustryIndexPreview, loadIndustryIndexPreview, removeIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
+import { parseToolboxRoute, removePreviewFromToolboxHash } from './data/toolboxRoute';
 import { createLatestRequestGuard, resolveActiveCustomIndex } from './data/customIndexPreviewState';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
@@ -1762,8 +1762,10 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
     if (!preview) return;
     const next = promoteCustomIndexPreview(indices, preview);
     persist(next);
+    removeIndustryIndexPreview(preview.index.id);
     setPreview(null);
     setSelectedId(preview.index.id);
+    window.location.hash = removePreviewFromToolboxHash(window.location.hash);
   }
 
   function updateSelectedIndex(update: (index: StoredCustomIndex) => StoredCustomIndex) {

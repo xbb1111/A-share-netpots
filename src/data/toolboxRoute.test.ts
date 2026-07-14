@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolboxRoute } from './toolboxRoute';
+import { parseToolboxRoute, removePreviewFromToolboxHash } from './toolboxRoute';
 
 describe('toolbox route', () => {
   it('parses the requested index preview', () => {
@@ -12,5 +12,10 @@ describe('toolbox route', () => {
 
   it('ignores tool parameters outside the toolbox page', () => {
     expect(parseToolboxRoute('#industries?tool=index&preview=old')).toEqual({ tool: null, previewId: null });
+  });
+
+  it('removes only the encoded preview parameter from a toolbox hash', () => {
+    expect(removePreviewFromToolboxHash('#toolbox?tool=index&preview=%E9%A2%84%E8%A7%88%20%2F%201&source=industry'))
+      .toBe('toolbox?tool=index&source=industry');
   });
 });
