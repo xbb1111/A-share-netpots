@@ -46,7 +46,6 @@ import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
-import { collectBranchStocks, type CanvasNode } from './data/industryCanvas';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -80,10 +79,13 @@ import {
   createCustomIndex,
   duplicateCustomIndex,
   loadCustomIndices,
+  promoteCustomIndexPreview,
   removeCustomIndex,
   saveCustomIndices,
   type StoredCustomIndex,
 } from './data/customIndexStorage';
+import { buildIndustryIndexPreview, loadIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
+import { parseToolboxRoute } from './data/toolboxRoute';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
 
@@ -1699,7 +1701,7 @@ function CustomIndexKlineChart({
   );
 }
 
-function CustomIndexToolPanel() {
+function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const [indices, setIndices] = useState<StoredCustomIndex[]>(() => loadCustomIndices());
   const [selectedId, setSelectedId] = useState<string | null>(() => loadCustomIndices()[0]?.id ?? null);
   const [draft, setDraft] = useState(emptyCustomIndexDraft);
@@ -1713,6 +1715,7 @@ function CustomIndexToolPanel() {
   const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<IndustryIndexPreview | null>(null);
   const [result, setResult] = useState<CustomIndexResult | null>(null);
   const [activeMetric, setActiveMetric] = useState<'drawdown' | null>(null);
   const [isLoadingResult, setIsLoadingResult] = useState(false);
@@ -1734,6 +1737,23 @@ function CustomIndexToolPanel() {
   function persist(next: StoredCustomIndex[]) {
     setIndices(next);
     saveCustomIndices(next);
+  }
+
+  useEffect(() => {
+    if (!previewId) { setPreview(null); return; }
+    const requested = loadIndustryIndexPreview(previewId);
+    if (!requested) { setPreview(null); setError('未找到请求的行业指数预览'); return; }
+    setPreview(requested);
+    setIndices((current) => promoteCustomIndexPreview(current, requested));
+    setSelectedId(requested.index.id);
+    setError(null);
+  }, [previewId]);
+
+  function savePreview() {
+    if (!preview) return;
+    const next = promoteCustomIndexPreview(loadCustomIndices(), preview);
+    persist(next);
+    setPreview(null);
   }
 
   function openEditor(index?: StoredCustomIndex) {
@@ -2109,8 +2129,9 @@ function CustomIndexToolPanel() {
           ) : (
             <>
               <div className="custom-index-detail-head">
-                <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{selected.description || '暂无组合说明'}</p></div>
+                <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{preview?.index.id === selected.id ? `临时预览 · 来源：${preview.sourcePath.join(' / ')}` : selected.description || '暂无组合说明'}</p></div>
                 <div className="custom-index-actions">
+                  {preview?.index.id === selected.id ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => { window.location.hash = 'industries?industryView=chain'; }}>返回行业研究</button></> : null}
                   <button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button>
                   <button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button>
                   <button type="button" onClick={deleteSelected}>删除</button>
@@ -2225,10 +2246,21 @@ function ToolboxPage() {
   });
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
-  const initialTool = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tool');
-  const [isPriceToolOpen, setIsPriceToolOpen] = useState(initialTool === 'price');
+  const [route, setRoute] = useState(() => parseToolboxRoute(window.location.hash));
+  const [isPriceToolOpen, setIsPriceToolOpen] = useState(route.tool === 'price');
   const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
-  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(initialTool === 'index');
+  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(route.tool === 'index');
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const next = parseToolboxRoute(window.location.hash);
+      setRoute(next);
+      if (next.tool === 'price') setIsPriceToolOpen(true);
+      if (next.tool === 'index') setIsCustomIndexToolOpen(true);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem('alpha-desk-tools', JSON.stringify(tools));
@@ -2333,14 +2365,14 @@ function ToolboxPage() {
 
       {isPriceToolOpen ? <PriceDisciplinePanel /> : null}
       {isFinancialReportToolOpen ? <FinancialReportPanel /> : null}
-      {isCustomIndexToolOpen ? <CustomIndexToolPanel /> : null}
+      {isCustomIndexToolOpen ? <CustomIndexToolPanel previewId={route.previewId} /> : null}
     </section>
   );
 }
 
 function renderPage(page: PageKey, data: DashboardData) {
   if (page === 'industries') {
-    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onOpenIndexTool={(node: CanvasNode, method) => { const components = collectBranchStocks(node).map((stock) => ({ code: stock.code, name: stock.name, industry: stock.industry ?? '产业链', marketCap: stock.marketCap ?? undefined, targetWeight: 0 })); const index = createCustomIndex({ name: `${node.name} 指数`, description: '由产业链画布临时预览确认后保存', tags: ['产业链'], components, weightMethod: method, rebalanceFrequency: 'monthly', baseValue: 100 }); saveCustomIndices([...loadCustomIndices(), index]); window.location.hash = 'toolbox?tool=index'; }} />;
+    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onPreviewIndex={(request) => { const preview = buildIndustryIndexPreview(request.node, request.method, request.sourcePath); saveIndustryIndexPreview(preview); window.location.hash = toIndustryIndexPreviewHash(preview.index.id); }} />;
   }
 
   if (page === 'watchlist') {

@@ -1,4 +1,5 @@
 import type { CustomIndexConfig, IndexComponent, RebalanceFrequency, WeightMethod } from './customIndex';
+import type { IndustryIndexPreview } from './industryIndexPreview';
 
 export const CUSTOM_INDEX_STORAGE_KEY = 'alpha-desk-custom-indices';
 
@@ -49,6 +50,19 @@ export function saveCustomIndices(indices: StoredCustomIndex[], storage?: Storag
 
 export function removeCustomIndex(indices: StoredCustomIndex[], id: string) {
   return indices.filter((index) => index.id !== id);
+}
+
+export function promoteCustomIndexPreview(indices: StoredCustomIndex[], preview: IndustryIndexPreview) {
+  const next: StoredCustomIndex[] = [];
+  let inserted = false;
+  for (const index of indices) {
+    if (index.id === preview.index.id) {
+      if (!inserted) next.push(preview.index);
+      inserted = true;
+    } else next.push(index);
+  }
+  if (!inserted) next.push(preview.index);
+  return next;
 }
 
 export function duplicateCustomIndex(index: StoredCustomIndex, createId: () => string = () => crypto.randomUUID()) {
