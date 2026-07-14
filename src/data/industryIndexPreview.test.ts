@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CUSTOM_INDEX_STORAGE_KEY } from './customIndexStorage';
 import {
   buildIndustryIndexPreview,
@@ -36,6 +36,7 @@ const branch: CanvasNode = {
 };
 
 describe('industry index preview', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('recursively collects, validates, and deduplicates branch securities', () => {
     const preview = buildIndustryIndexPreview(branch, 'equal', ['新能源', '材料'], () => 'preview id');
     expect(preview.index.components).toEqual([
@@ -76,6 +77,41 @@ describe('industry index preview', () => {
     expect(loadIndustryIndexPreview('missing', storage)).toBeNull();
     storage.setItem('industry-index-preview:bad', '{');
     expect(loadIndustryIndexPreview('bad', storage)).toBeNull();
+  });
+
+  it.each([
+    ['missing components', (value: Record<string, any>) => { delete value.index.components; }],
+    ['non-string source path', (value: Record<string, any>) => { value.sourcePath = ['行业', 1]; }],
+    ['negative count', (value: Record<string, any>) => { value.totalCompanyCount = -1; }],
+    ['invalid weight method', (value: Record<string, any>) => { value.index.weightMethod = 'random'; }],
+    ['invalid component', (value: Record<string, any>) => { value.index.components = [{ code: '300750', name: 3, industry: '电池' }]; }],
+    ['invalid optional index field', (value: Record<string, any>) => { value.index.baseDate = 20260101; }],
+  ])('returns null for valid JSON with %s', (_label, mutate) => {
+    const storage = fakeStorage();
+    const preview = buildIndustryIndexPreview(branch, 'equal', ['新能源'], () => 'malformed');
+    const value = JSON.parse(JSON.stringify(preview)) as Record<string, any>;
+    mutate(value);
+    storage.setItem('industry-index-preview:malformed', JSON.stringify(value));
+    expect(loadIndustryIndexPreview('malformed', storage)).toBeNull();
+  });
+
+  it('rejects a non-finite company count encoded as valid JSON', () => {
+    const storage = fakeStorage();
+    const preview = buildIndustryIndexPreview(branch, 'equal', ['新能源'], () => 'infinite');
+    const raw = JSON.stringify(preview).replace(`"totalCompanyCount":${preview.totalCompanyCount}`, '"totalCompanyCount":1e400');
+    storage.setItem('industry-index-preview:infinite', raw);
+    expect(loadIndustryIndexPreview('infinite', storage)).toBeNull();
+  });
+
+  it('uses window sessionStorage by default without touching localStorage', () => {
+    const sessionStorage = fakeStorage();
+    const localStorage = fakeStorage();
+    vi.stubGlobal('window', { sessionStorage, localStorage });
+    const preview = buildIndustryIndexPreview(branch, 'equal', ['新能源'], () => 'default-session');
+    saveIndustryIndexPreview(preview);
+    expect(loadIndustryIndexPreview('default-session')).toEqual(preview);
+    expect(sessionStorage.getItem('industry-index-preview:default-session')).not.toBeNull();
+    expect(localStorage.values.size).toBe(0);
   });
 
   it('encodes preview ids in the toolbox hash', () => {

@@ -11,6 +11,44 @@ const keyFor = (id: string) => `${PREVIEW_KEY_PREFIX}${id}`;
 const validSecurityCode = (code: string) => /^\d{6}$/.test(code.trim());
 function defaultStorage(): StorageLike | null { if (typeof window === 'undefined') return null; try { return window.sessionStorage; } catch { return null; } }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object';
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string');
+const isOptionalString = (value: unknown) => value === undefined || typeof value === 'string';
+const isOptionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
+const isOptionalFiniteNumber = (value: unknown) => value === undefined || (typeof value === 'number' && Number.isFinite(value));
+
+function isIndexComponent(value: unknown) {
+  if (!isRecord(value)) return false;
+  return typeof value.code === 'string' && typeof value.name === 'string' && typeof value.industry === 'string'
+    && isOptionalFiniteNumber(value.marketCap) && isOptionalFiniteNumber(value.targetWeight);
+}
+
+function isStoredPreviewIndex(value: unknown): value is StoredCustomIndex {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && typeof value.description === 'string'
+    && isStringArray(value.tags)
+    && typeof value.createdAt === 'string'
+    && typeof value.updatedAt === 'string'
+    && Array.isArray(value.components) && value.components.every(isIndexComponent)
+    && (value.weightMethod === 'equal' || value.weightMethod === 'marketCap' || value.weightMethod === 'custom')
+    && (value.rebalanceFrequency === 'none' || value.rebalanceFrequency === 'monthly' || value.rebalanceFrequency === 'quarterly' || value.rebalanceFrequency === 'semiannual' || value.rebalanceFrequency === 'annual')
+    && (value.period === undefined || value.period === '15m' || value.period === '30m' || value.period === '60m' || value.period === 'daily' || value.period === 'weekly')
+    && isOptionalFiniteNumber(value.baseValue)
+    && isOptionalString(value.baseDate)
+    && isOptionalString(value.benchmarkCode)
+    && isOptionalBoolean(value.showBenchmark);
+}
+
+export function isIndustryIndexPreview(value: unknown): value is IndustryIndexPreview {
+  if (!isRecord(value)) return false;
+  return isStoredPreviewIndex(value.index)
+    && isStringArray(value.sourcePath)
+    && typeof value.totalCompanyCount === 'number' && Number.isFinite(value.totalCompanyCount) && value.totalCompanyCount >= 0
+    && typeof value.createdAt === 'string';
+}
+
 export function getComputableBranchStocks(node: CanvasNode) {
   const seen = new Set<string>();
   return collectBranchStocks(node).flatMap((stock) => {
@@ -36,8 +74,8 @@ export function loadIndustryIndexPreview(id: string, storage?: StorageLike): Ind
   const source = storage ?? defaultStorage(); if (!source) return null;
   try {
     const raw = source.getItem(keyFor(id)); if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<IndustryIndexPreview>;
-    return value.index?.id === id && Array.isArray(value.sourcePath) && typeof value.totalCompanyCount === 'number' && typeof value.createdAt === 'string' ? value as IndustryIndexPreview : null;
+    const value: unknown = JSON.parse(raw);
+    return isIndustryIndexPreview(value) && value.index.id === id ? value : null;
   } catch { return null; }
 }
 export function removeIndustryIndexPreview(id: string, storage?: StorageLike) { (storage ?? defaultStorage())?.removeItem(keyFor(id)); }
