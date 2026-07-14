@@ -81,7 +81,7 @@ import {
   loadCustomIndices,
   promoteCustomIndexPreview,
   removeCustomIndex,
-  saveCustomIndices,
+  trySaveCustomIndices,
   type StoredCustomIndex,
 } from './data/customIndexStorage';
 import { buildIndustryIndexPreview, loadIndustryIndexPreview, removeIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
@@ -1740,8 +1740,13 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const drawdownWindow = activeMetric === 'drawdown' && result ? findMaxDrawdownWindow(result.series) : null;
 
   function persist(next: StoredCustomIndex[]) {
+    if (!trySaveCustomIndices(next)) {
+      setError('指数保存失败，请检查浏览器存储空间后重试');
+      return false;
+    }
     setIndices(next);
-    saveCustomIndices(next);
+    setError(null);
+    return true;
   }
 
   function loadRequestedPreview() {
@@ -1761,11 +1766,15 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   function savePreview() {
     if (!preview) return;
     const next = promoteCustomIndexPreview(indices, preview);
-    persist(next);
-    removeIndustryIndexPreview(preview.index.id);
-    setPreview(null);
+    if (!persist(next)) return;
+    exitPreview();
     setSelectedId(preview.index.id);
-    window.location.hash = removePreviewFromToolboxHash(window.location.hash);
+  }
+
+  function exitPreview(nextHash = removePreviewFromToolboxHash(window.location.hash)) {
+    if (preview) removeIndustryIndexPreview(preview.index.id);
+    setPreview(null);
+    window.location.hash = nextHash;
   }
 
   function updateSelectedIndex(update: (index: StoredCustomIndex) => StoredCustomIndex) {
@@ -1934,7 +1943,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
         ? ({ ...draft, id: editingId, createdAt: selected?.createdAt ?? now, updatedAt: now } as StoredCustomIndex)
         : createCustomIndex(draft);
       const next = editingId ? indices.map((index) => (index.id === editingId ? nextIndex : index)) : [...indices, nextIndex];
-      persist(next);
+      if (!persist(next)) return;
       setSelectedId(nextIndex.id);
       setIsEditorOpen(false);
       setError(null);
@@ -1991,15 +2000,13 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   function duplicateSelected() {
     if (!selected) return;
     const copy = duplicateCustomIndex(selected);
-    persist([...indices, copy]);
-    setSelectedId(copy.id);
+    if (persist([...indices, copy])) setSelectedId(copy.id);
   }
 
   function deleteSelected() {
     if (!selected) return;
     const next = removeCustomIndex(indices, selected.id);
-    persist(next);
-    setSelectedId(next[0]?.id ?? null);
+    if (persist(next)) setSelectedId(next[0]?.id ?? null);
   }
 
   function updateSelectedPeriod(period: IndexBarPeriod) {
@@ -2142,7 +2149,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
               type="button"
               className={`custom-index-list__item${selectedId === index.id ? ' custom-index-list__item--active' : ''}`}
               key={index.id}
-              onClick={() => { setPreview(null); setSelectedId(index.id); }}
+              onClick={() => { exitPreview(); setSelectedId(index.id); }}
             >
               <strong>{index.name}</strong>
               <span>{index.components.length} 只成分 · {index.rebalanceFrequency === 'none' ? '不调仓' : index.rebalanceFrequency}</span>
@@ -2158,7 +2165,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
               <div className="custom-index-detail-head">
                 <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{preview?.index.id === selected.id ? `临时预览 · 来源：${preview.sourcePath.join(' / ')}` : selected.description || '暂无组合说明'}</p></div>
                 <div className="custom-index-actions">
-                  {isPreviewActive ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => { window.location.hash = 'industries?industryView=chain'; }}>返回行业研究</button></> : <><button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button><button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button><button type="button" onClick={deleteSelected}>删除</button></>}
+                  {isPreviewActive ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => exitPreview('industries?industryView=chain')}>返回行业研究</button></> : <><button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button><button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button><button type="button" onClick={deleteSelected}>删除</button></>}
                 </div>
               </div>
               {isLoadingResult ? <div className="custom-index-loading">正在获取历史行情并计算指数…</div> : null}

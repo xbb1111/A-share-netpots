@@ -5,6 +5,7 @@ import {
   promoteCustomIndexPreview,
   removeCustomIndex,
   saveCustomIndices,
+  trySaveCustomIndices,
   type StoredCustomIndex,
 } from './customIndexStorage';
 import type { IndustryIndexPreview } from './industryIndexPreview';
@@ -46,6 +47,21 @@ describe('custom index storage', () => {
     expect(copied.id).toBe('copy-id');
     expect(copied.name).toBe('科技成长 副本');
     expect(removeCustomIndex([preset, copied], 'one')).toEqual([copied]);
+  });
+
+  it('reports storage failure without pretending the indices were saved', () => {
+    const throwingStorage = {
+      getItem: () => null,
+      setItem: () => { throw new DOMException('quota', 'QuotaExceededError'); },
+      removeItem: () => undefined,
+    };
+    expect(trySaveCustomIndices([preset], throwingStorage)).toBe(false);
+  });
+
+  it('reports successful storage before preview cleanup may continue', () => {
+    const storage = createStorage();
+    expect(trySaveCustomIndices([preset], storage)).toBe(true);
+    expect(loadCustomIndices(storage)).toEqual([preset]);
   });
 
   it('promotes a preview by replacing the same id without duplicates', () => {

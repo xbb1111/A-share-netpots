@@ -48,6 +48,15 @@ export function saveCustomIndices(indices: StoredCustomIndex[], storage?: Storag
   getStorage(storage)?.setItem(CUSTOM_INDEX_STORAGE_KEY, JSON.stringify(indices));
 }
 
+export function trySaveCustomIndices(indices: StoredCustomIndex[], storage?: StorageLike) {
+  try {
+    saveCustomIndices(indices, storage);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function removeCustomIndex(indices: StoredCustomIndex[], id: string) {
   return indices.filter((index) => index.id !== id);
 }

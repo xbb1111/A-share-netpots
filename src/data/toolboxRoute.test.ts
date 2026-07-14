@@ -18,4 +18,9 @@ describe('toolbox route', () => {
     expect(removePreviewFromToolboxHash('#toolbox?tool=index&preview=%E9%A2%84%E8%A7%88%20%2F%201&source=industry'))
       .toBe('toolbox?tool=index&source=industry');
   });
+
+  it('produces a route that cannot reactivate an exited preview', () => {
+    const exited = removePreviewFromToolboxHash('#toolbox?tool=index&preview=abandoned&source=industry');
+    expect(parseToolboxRoute(`#${exited}`)).toEqual({ tool: 'index', previewId: null });
+  });
 });
