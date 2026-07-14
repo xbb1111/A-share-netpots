@@ -9,10 +9,9 @@ export function buildIndustryBubbles<T extends { code: string; heat: number; cha
   const max = Math.max(...raw, 1);
   const maxRadius = Math.max(38, Math.min(72, Math.sqrt((width * height) / sorted.length) * 0.42));
   const minRadius = Math.max(17, Math.min(25, maxRadius * 0.42));
-  const radii = raw.map((value, index) => {
+  const radii = raw.map((value) => {
     const intensity = Math.sqrt(value / max);
-    const rank = sorted.length === 1 ? 1 : 1 - index / (sorted.length - 1);
-    return minRadius + (intensity * 0.7 + rank * 0.3) * (maxRadius - minRadius);
+    return minRadius + intensity * (maxRadius - minRadius);
   });
   const padding = 5;
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
