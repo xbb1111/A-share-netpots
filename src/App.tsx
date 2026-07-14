@@ -86,6 +86,7 @@ import {
 } from './data/customIndexStorage';
 import { buildIndustryIndexPreview, loadIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
 import { parseToolboxRoute } from './data/toolboxRoute';
+import { createLatestRequestGuard, resolveActiveCustomIndex } from './data/customIndexPreviewState';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
 
@@ -1716,6 +1717,8 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<IndustryIndexPreview | null>(null);
+  const [previewLoadFailed, setPreviewLoadFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [result, setResult] = useState<CustomIndexResult | null>(null);
   const [activeMetric, setActiveMetric] = useState<'drawdown' | null>(null);
   const [isLoadingResult, setIsLoadingResult] = useState(false);
@@ -1730,8 +1733,10 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const indexChartCanvasRef = useRef<HTMLDivElement | null>(null);
   const indexChartDragRef = useRef<{ startX: number; startOffset: number } | null>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const calculationGuardRef = useRef(createLatestRequestGuard());
 
-  const selected = indices.find((index) => index.id === selectedId) ?? null;
+  const selected = resolveActiveCustomIndex(indices, selectedId, preview);
+  const isPreviewActive = preview !== null;
   const drawdownWindow = activeMetric === 'drawdown' && result ? findMaxDrawdownWindow(result.series) : null;
 
   function persist(next: StoredCustomIndex[]) {
@@ -1739,21 +1744,37 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
     saveCustomIndices(next);
   }
 
-  useEffect(() => {
-    if (!previewId) { setPreview(null); return; }
+  function loadRequestedPreview() {
+    if (!previewId) { setPreview(null); setPreviewLoadFailed(false); return; }
     const requested = loadIndustryIndexPreview(previewId);
-    if (!requested) { setPreview(null); setError('未找到请求的行业指数预览'); return; }
+    if (!requested) { setPreview(null); setPreviewLoadFailed(true); setError('未找到请求的行业指数预览'); return; }
     setPreview(requested);
-    setIndices((current) => promoteCustomIndexPreview(current, requested));
     setSelectedId(requested.index.id);
+    setPreviewLoadFailed(false);
     setError(null);
+  }
+
+  useEffect(() => {
+    loadRequestedPreview();
   }, [previewId]);
 
   function savePreview() {
     if (!preview) return;
-    const next = promoteCustomIndexPreview(loadCustomIndices(), preview);
+    const next = promoteCustomIndexPreview(indices, preview);
     persist(next);
     setPreview(null);
+    setSelectedId(preview.index.id);
+  }
+
+  function updateSelectedIndex(update: (index: StoredCustomIndex) => StoredCustomIndex) {
+    if (!selected) return;
+    if (preview) {
+      const next = { ...preview, index: update(preview.index) };
+      setPreview(next);
+      saveIndustryIndexPreview(next);
+      return;
+    }
+    persist(indices.map((index) => index.id === selected.id ? update(index) : index));
   }
 
   function openEditor(index?: StoredCustomIndex) {
@@ -1772,7 +1793,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
 
   useEffect(() => {
     setBenchmarkInput(selected?.benchmarkCode ?? '');
-  }, [selectedId]);
+  }, [selected?.benchmarkCode, selectedId]);
 
   useEffect(() => {
     const query = benchmarkInput.trim();
@@ -1793,12 +1814,12 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
     const benchmarkCode = code.trim();
     setBenchmarkInput(benchmarkCode);
     setBenchmarkSuggestions([]);
-    persist(indices.map((index) => index.id === selected.id ? { ...index, benchmarkCode, updatedAt: new Date().toISOString() } : index));
+    updateSelectedIndex((index) => ({ ...index, benchmarkCode, updatedAt: new Date().toISOString() }));
   }
 
   function updateSelectedBenchmarkVisibility(showBenchmark: boolean) {
     if (!selected) return;
-    persist(indices.map((index) => index.id === selected.id ? { ...index, showBenchmark, updatedAt: new Date().toISOString() } : index));
+    updateSelectedIndex((index) => ({ ...index, showBenchmark, updatedAt: new Date().toISOString() }));
   }
 
   function removeComponent(code: string) {
@@ -1921,7 +1942,9 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   }
 
   async function calculateSelected(index: StoredCustomIndex) {
+    const request = calculationGuardRef.current.begin();
     setIsLoadingResult(true);
+    setResult(null);
     setError(null);
     try {
       let benchmarkCode = index.benchmarkCode;
@@ -1937,19 +1960,21 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
         }
       }
       const data = await fetchCustomIndexData(index.components, fetch, benchmarkCode, index.period ?? 'daily');
-      setResult(calculateCustomIndexResult({ ...index, benchmarkCode }, data));
+      if (calculationGuardRef.current.isLatest(request)) setResult(calculateCustomIndexResult({ ...index, benchmarkCode }, data));
     } catch (caught) {
-      setResult(null);
-      setError(caught instanceof Error ? caught.message : '指数计算失败');
+      if (calculationGuardRef.current.isLatest(request)) {
+        setResult(null);
+        setError(caught instanceof Error ? caught.message : '指数计算失败');
+      }
     } finally {
-      setIsLoadingResult(false);
+      if (calculationGuardRef.current.isLatest(request)) setIsLoadingResult(false);
     }
   }
 
   useEffect(() => {
     if (selected) void calculateSelected(selected);
-    else setResult(null);
-  }, [selectedId, indices]);
+    else { calculationGuardRef.current.begin(); setResult(null); setIsLoadingResult(false); }
+  }, [selected, retryNonce]);
 
   useEffect(() => {
     if (!editingId || editingId !== selectedId || !selected || !result?.marketData) return;
@@ -1977,8 +2002,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
 
   function updateSelectedPeriod(period: IndexBarPeriod) {
     if (!selected) return;
-    const next = indices.map((index) => index.id === selected.id ? { ...index, period, updatedAt: new Date().toISOString() } : index);
-    persist(next);
+    updateSelectedIndex((index) => ({ ...index, period, updatedAt: new Date().toISOString() }));
   }
 
   const indexChartRows = useMemo(
@@ -2104,18 +2128,19 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
         </button>
       </div>
 
-      {error ? <div className="custom-index-error">{error}</div> : null}
+      {error ? <div className="custom-index-error">{error} <button type="button" onClick={() => previewLoadFailed ? loadRequestedPreview() : setRetryNonce((value) => value + 1)}>重试</button></div> : null}
 
       <div className="custom-index-layout">
         <aside className="custom-index-list">
           <div className="custom-index-list__heading"><span>我的指数</span><b>{indices.length}</b></div>
+          {preview ? <button type="button" className="custom-index-list__item custom-index-list__item--active" onClick={() => setSelectedId(preview.index.id)}><strong>{preview.index.name}</strong><span>临时预览 · {preview.index.components.length} 只成分</span></button> : null}
           {indices.length === 0 ? <div className="custom-index-empty">还没有指数，先创建一个行业篮子。</div> : null}
           {indices.map((index) => (
             <button
               type="button"
               className={`custom-index-list__item${selectedId === index.id ? ' custom-index-list__item--active' : ''}`}
               key={index.id}
-              onClick={() => setSelectedId(index.id)}
+              onClick={() => { setPreview(null); setSelectedId(index.id); }}
             >
               <strong>{index.name}</strong>
               <span>{index.components.length} 只成分 · {index.rebalanceFrequency === 'none' ? '不调仓' : index.rebalanceFrequency}</span>
@@ -2131,10 +2156,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
               <div className="custom-index-detail-head">
                 <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{preview?.index.id === selected.id ? `临时预览 · 来源：${preview.sourcePath.join(' / ')}` : selected.description || '暂无组合说明'}</p></div>
                 <div className="custom-index-actions">
-                  {preview?.index.id === selected.id ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => { window.location.hash = 'industries?industryView=chain'; }}>返回行业研究</button></> : null}
-                  <button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button>
-                  <button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button>
-                  <button type="button" onClick={deleteSelected}>删除</button>
+                  {isPreviewActive ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => { window.location.hash = 'industries?industryView=chain'; }}>返回行业研究</button></> : <><button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button><button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button><button type="button" onClick={deleteSelected}>删除</button></>}
                 </div>
               </div>
               {isLoadingResult ? <div className="custom-index-loading">正在获取历史行情并计算指数…</div> : null}
