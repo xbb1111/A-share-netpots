@@ -9,6 +9,10 @@ import {
   addStockToCanvasNode,
   createCanvasSharePayload,
   parseCanvasSharePayload,
+  findCanvasNode,
+  updateCanvasNodeDescription,
+  addCanvasSibling,
+  removeStockFromCanvasNode,
 } from './industryCanvas';
 
 const canvas = createIndustryCanvas({
@@ -55,5 +59,42 @@ describe('industry canvas model', () => {
     const once = addStockToCanvasNode(canvas, 'materials', { code: '600000', name: '浦发银行', change: 2, marketCap: 50, pe: 5 });
     const twice = addStockToCanvasNode(once, 'materials', { code: '600000', name: '浦发银行', change: 2, marketCap: 50, pe: 5 });
     expect(twice.root.children[0].stocks.filter((stock) => stock.code === '600000')).toHaveLength(1);
+  });
+
+  it('finds deeply nested nodes without changing the tree', () => {
+    expect(findCanvasNode(canvas.root, 'lithium')?.id).toBe('lithium');
+    expect(findCanvasNode(canvas.root, 'missing')).toBeUndefined();
+  });
+
+  it('updates a deep node description immutably and touches the canvas', () => {
+    const original = structuredClone(canvas);
+    const updated = updateCanvasNodeDescription(canvas, 'lithium', 'upstream resource');
+    expect(findCanvasNode(updated.root, 'lithium')?.description).toBe('upstream resource');
+    expect(updated.root).not.toBe(canvas.root);
+    expect(updated.updatedAt).not.toBe(canvas.updatedAt);
+    expect(canvas).toEqual(original);
+  });
+
+  it('inserts a sibling immediately after a deeply selected node', () => {
+    const updated = addCanvasSibling(canvas, 'lithium', { id: 'nickel', name: 'Nickel' });
+    expect(updated.root.children[0].children.map((node) => node.id)).toEqual(['lithium', 'nickel']);
+    expect(updated.root.children[0].children[1]).toMatchObject({ description: '', stocks: [], children: [] });
+    expect(canvas.root.children[0].children).toHaveLength(1);
+  });
+
+  it('does not add a sibling to the root or modify anything for missing ids', () => {
+    expect(addCanvasSibling(canvas, 'root', { id: 'x', name: 'X' })).toBe(canvas);
+    expect(addCanvasSibling(canvas, 'missing', { id: 'x', name: 'X' })).toBe(canvas);
+    expect(updateCanvasNodeDescription(canvas, 'missing', 'nope')).toBe(canvas);
+    expect(removeStockFromCanvasNode(canvas, 'missing', '000001')).toBe(canvas);
+  });
+
+  it('removes a trimmed stock code only from the selected node and preserves descendants', () => {
+    const original = structuredClone(canvas);
+    const updated = removeStockFromCanvasNode(canvas, 'root', ' 000001 ');
+    expect(updated.root.stocks).toEqual([]);
+    expect(findCanvasNode(updated.root, 'lithium')?.stocks.map((stock) => stock.code)).toEqual(['000001']);
+    expect(updated.updatedAt).not.toBe(canvas.updatedAt);
+    expect(canvas).toEqual(original);
   });
 });

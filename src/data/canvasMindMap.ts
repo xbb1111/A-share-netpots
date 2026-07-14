@@ -3,6 +3,8 @@ import type { CanvasNode } from './industryCanvas';
 export type MindMapNode = { id: string; name: string; depth: number; x: number; y: number; width: number; height: number; stockCount: number; isOnSelectedPath: boolean };
 export type MindMapLink = { id: string; parentId: string; childId: string; from: { x: number; y: number }; to: { x: number; y: number }; isOnSelectedPath: boolean };
 export type MindMapLayout = { nodes: MindMapNode[]; links: MindMapLink[]; width: number; height: number };
+export type MindMapLayoutOptions = { expandedId?: string; expandedWidth?: number; expandedHeight?: number };
+export type MindMapRectangle = { x: number; y: number; width: number; height: number };
 
 const NODE_WIDTH = 172;
 const NODE_HEIGHT = 62;
@@ -24,20 +26,93 @@ export function getCanvasNodePath(root: CanvasNode, selectedId: string): CanvasN
   return ids.map((id) => index.get(id)!).filter(Boolean);
 }
 
-export function layoutCanvasMindMap(root: CanvasNode, selectedId = root.id): MindMapLayout {
+export function rectanglesOverlap(a: MindMapRectangle, b: MindMapRectangle): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x
+    && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+type LayoutTree = {
+  source: CanvasNode;
+  depth: number;
+  width: number;
+  height: number;
+  subtreeHeight: number;
+  children: LayoutTree[];
+};
+
+const expandedDimension = (value: number | undefined, minimum: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(minimum, value) : minimum;
+
+export function layoutCanvasMindMap(root: CanvasNode, selectedId = root.id, options: MindMapLayoutOptions = {}): MindMapLayout {
   const path = new Set(getCanvasNodePath(root, selectedId).map((node) => node.id));
   const nodes: MindMapNode[] = [];
   const links: MindMapLink[] = [];
-  let row = 0;
-  const place = (node: CanvasNode, depth: number) => {
-    const childNodes = node.children.map((child) => place(child, depth + 1));
-    const y = childNodes.length ? (childNodes[0].y + childNodes[childNodes.length - 1].y) / 2 : PADDING + row++ * (NODE_HEIGHT + ROW_GAP);
-    const placed: MindMapNode = { id: node.id, name: node.name, depth, x: PADDING + depth * (NODE_WIDTH + COLUMN_GAP), y, width: NODE_WIDTH, height: NODE_HEIGHT, stockCount: node.stocks.length, isOnSelectedPath: path.has(node.id) };
-    nodes.push(placed);
-    childNodes.forEach((child) => links.push({ id: `${placed.id}:${child.id}`, parentId: placed.id, childId: child.id, from: { x: placed.x + placed.width, y: placed.y + placed.height / 2 }, to: { x: child.x, y: child.y + child.height / 2 }, isOnSelectedPath: placed.isOnSelectedPath && child.isOnSelectedPath }));
-    return placed;
+
+  const measure = (node: CanvasNode, depth: number): LayoutTree => {
+    const expanded = node.id === options.expandedId;
+    const width = expanded ? expandedDimension(options.expandedWidth, NODE_WIDTH) : NODE_WIDTH;
+    const height = expanded ? expandedDimension(options.expandedHeight, NODE_HEIGHT) : NODE_HEIGHT;
+    const children = node.children.map((child) => measure(child, depth + 1));
+    const childrenHeight = children.reduce((sum, child) => sum + child.subtreeHeight, 0)
+      + Math.max(0, children.length - 1) * ROW_GAP;
+    return { source: node, depth, width, height, children, subtreeHeight: Math.max(height, childrenHeight) };
   };
-  place(root, 0);
-  const maxDepth = Math.max(...nodes.map((node) => node.depth));
-  return { nodes, links, width: PADDING * 2 + (maxDepth + 1) * NODE_WIDTH + maxDepth * COLUMN_GAP, height: PADDING * 2 + Math.max(1, row) * NODE_HEIGHT + Math.max(0, row - 1) * ROW_GAP };
+
+  const tree = measure(root, 0);
+  const columnWidths: number[] = [];
+  const collectWidths = (item: LayoutTree) => {
+    columnWidths[item.depth] = Math.max(columnWidths[item.depth] ?? 0, item.width);
+    item.children.forEach(collectWidths);
+  };
+  collectWidths(tree);
+  const columnX: number[] = [];
+  columnWidths.forEach((_, depth) => {
+    columnX[depth] = depth === 0 ? PADDING : columnX[depth - 1] + columnWidths[depth - 1] + COLUMN_GAP;
+  });
+
+  const placedById = new Map<string, MindMapNode>();
+  const place = (item: LayoutTree, top: number) => {
+    const placed: MindMapNode = {
+      id: item.source.id,
+      name: item.source.name,
+      depth: item.depth,
+      x: columnX[item.depth],
+      y: top + (item.subtreeHeight - item.height) / 2,
+      width: item.width,
+      height: item.height,
+      stockCount: item.source.stocks.length,
+      isOnSelectedPath: path.has(item.source.id),
+    };
+    nodes.push(placed);
+    placedById.set(placed.id, placed);
+    const childrenHeight = item.children.reduce((sum, child) => sum + child.subtreeHeight, 0)
+      + Math.max(0, item.children.length - 1) * ROW_GAP;
+    let childTop = top + (item.subtreeHeight - childrenHeight) / 2;
+    item.children.forEach((child) => {
+      place(child, childTop);
+      childTop += child.subtreeHeight + ROW_GAP;
+    });
+  };
+  place(tree, PADDING);
+
+  const connect = (item: LayoutTree) => {
+    const parent = placedById.get(item.source.id)!;
+    item.children.forEach((childTree) => {
+      const child = placedById.get(childTree.source.id)!;
+      links.push({
+        id: `${parent.id}:${child.id}`,
+        parentId: parent.id,
+        childId: child.id,
+        from: { x: parent.x + parent.width, y: parent.y + parent.height / 2 },
+        to: { x: child.x, y: child.y + child.height / 2 },
+        isOnSelectedPath: parent.isOnSelectedPath && child.isOnSelectedPath,
+      });
+      connect(childTree);
+    });
+  };
+  connect(tree);
+
+  const maxRight = Math.max(...nodes.map((node) => node.x + node.width));
+  const maxBottom = Math.max(...nodes.map((node) => node.y + node.height));
+  return { nodes, links, width: maxRight + PADDING, height: maxBottom + PADDING };
 }

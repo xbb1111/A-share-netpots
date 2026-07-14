@@ -44,7 +44,51 @@ function updateNode(node: CanvasNode, id: string, updater: (item: CanvasNode) =>
   const children = node.children.map((child) => updateNode(child, id, updater));
   return children.some((child, index) => child !== node.children[index]) ? { ...node, children } : node;
 }
-function touch(canvas: IndustryCanvas, root: CanvasNode): IndustryCanvas { return { ...canvas, root, updatedAt: now() }; }
+function touch(canvas: IndustryCanvas, root: CanvasNode): IndustryCanvas {
+  if (root === canvas.root) return canvas;
+  const timestamp = now();
+  const updatedAt = timestamp === canvas.updatedAt
+    ? new Date(new Date(canvas.updatedAt).getTime() + 1).toISOString()
+    : timestamp;
+  return { ...canvas, root, updatedAt };
+}
+
+export function findCanvasNode(root: CanvasNode, id: string): CanvasNode | undefined {
+  if (root.id === id) return root;
+  for (const child of root.children) {
+    const found = findCanvasNode(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+export function updateCanvasNodeDescription(canvas: IndustryCanvas, id: string, description: string): IndustryCanvas {
+  return touch(canvas, updateNode(canvas.root, id, (node) => ({ ...node, description })));
+}
+
+export function addCanvasSibling(canvas: IndustryCanvas, nodeId: string, childData: Pick<CanvasNode, 'id' | 'name'> & Partial<CanvasNode>): IndustryCanvas {
+  if (canvas.root.id === nodeId) return canvas;
+  const sibling: CanvasNode = { description: '', stocks: [], children: [], ...childData };
+  const insert = (node: CanvasNode): CanvasNode => {
+    const index = node.children.findIndex((child) => child.id === nodeId);
+    if (index >= 0) {
+      const children = [...node.children];
+      children.splice(index + 1, 0, sibling);
+      return { ...node, children };
+    }
+    const children = node.children.map(insert);
+    return children.some((child, childIndex) => child !== node.children[childIndex]) ? { ...node, children } : node;
+  };
+  return touch(canvas, insert(canvas.root));
+}
+
+export function removeStockFromCanvasNode(canvas: IndustryCanvas, nodeId: string, code: string): IndustryCanvas {
+  const normalizedCode = code.trim();
+  return touch(canvas, updateNode(canvas.root, nodeId, (node) => {
+    const stocks = node.stocks.filter((stock) => stock.code.trim() !== normalizedCode);
+    return stocks.length === node.stocks.length ? node : { ...node, stocks };
+  }));
+}
 
 export function addCanvasChild(canvas: IndustryCanvas, parentId: string, child: Pick<CanvasNode, 'id' | 'name'> & Partial<CanvasNode>): IndustryCanvas {
   const node: CanvasNode = { description: '', stocks: [], children: [], ...child };
