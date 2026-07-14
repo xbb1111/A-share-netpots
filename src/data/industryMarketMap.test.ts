@@ -57,4 +57,29 @@ describe('industry market constellation layout', () => {
       expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(a.r + b.r - 0.01);
     }
   });
+
+  it('maps equal heat to equal area across groups with different densities', () => {
+    const crossGroup = [
+      { code: 'R1', name: '技术', level: 1 as const, heat: 40, change: 0 },
+      ...Array.from({ length: 12 }, (_, index) => ({ code: `A${index}`, name: `软件${index}`, level: 2 as const, parentCode: 'R1', heat: index === 0 ? 55 : index + 1, change: 0 })),
+      { code: 'BANK', name: '银行', level: 2 as const, heat: 55, change: 0 },
+    ];
+    const layout = buildIndustryMarketMap(crossGroup, 'heat', 800, 360);
+    expect(layout.items.find((item) => item.code === 'A0')?.r).toBeCloseTo(layout.items.find((item) => item.code === 'BANK')!.r, 8);
+  });
+
+  it('maps equal absolute change to equal area across groups', () => {
+    const layout = buildIndustryMarketMap([
+      { code: 'SOFT', name: '软件开发', level: 2 as const, heat: 1, change: 1 },
+      { code: 'BANK', name: '银行', level: 2 as const, heat: 99, change: -1 },
+    ], 'change', 800, 360);
+    expect(layout.items[0].r).toBeCloseTo(layout.items[1].r, 8);
+  });
+
+  it('uses a readable minimum cell radius and expands short viewports when needed', () => {
+    const dense = Array.from({ length: 80 }, (_, index) => ({ code: `S${index}`, name: `软件${index}`, level: 2 as const, heat: 0, change: 0 }));
+    const layout = buildIndustryMarketMap(dense, 'heat', 640, 360);
+    expect(Math.min(...layout.items.map((item) => item.r))).toBeGreaterThanOrEqual(20);
+    expect(layout.bounds.height).toBeGreaterThan(360);
+  });
 });

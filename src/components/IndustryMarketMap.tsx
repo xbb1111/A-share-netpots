@@ -14,7 +14,8 @@ export function IndustryMarketMap({ boards, metric, onActivate }: { boards: Indu
         const flow = Number.isFinite(item.capitalFlow) ? ` 资金流 ${item.capitalFlow! >= 0 ? '+' : ''}${item.capitalFlow!.toFixed(2)} 亿` : '';
         const description = `${item.name} ${item.code} 涨跌幅 ${change} 热度 ${item.heat}${flow}`;
         const diameter = item.r * 2;
-        return <button type="button" key={item.code} title={description} aria-label={description} onClick={() => onActivate(board)} className={`industry-market-map__item industry-market-map__item--${item.tone}${item.featured ? ' industry-market-map__item--featured' : ''}`} style={{ left: item.x - item.r, top: item.y - item.r, width: diameter, height: diameter }}><strong>{item.name.slice(0, 7)}</strong><span>{change}</span></button>;
+        const compact = item.r < 24;
+        return <button type="button" key={item.code} title={description} aria-label={description} onClick={() => onActivate(board)} className={`industry-market-map__item industry-market-map__item--${item.tone}${item.featured ? ' industry-market-map__item--featured' : ''}${compact ? ' industry-market-map__item--compact' : ''}`} style={{ left: item.x - item.r, top: item.y - item.r, width: diameter, height: diameter }}><strong>{item.name.slice(0, 7)}</strong>{compact ? null : <span>{change}</span>}</button>;
       })}
     </div>
   </div>;
