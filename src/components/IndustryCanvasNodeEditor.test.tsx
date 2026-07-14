@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CanvasNode, IndustryCanvas } from '../data/industryCanvas';
-import { getCanvasKeyboardAction, getCanvasKeyboardTarget } from './IndustryCanvasMindMap';
-import { getCanvasNodeEditorState, IndustryCanvasNodeEditor } from './IndustryCanvasNodeEditor';
+import { calculateFitTransform, clampCanvasZoom, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldStartCanvasPan } from './IndustryCanvasMindMap';
+import { getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
 
 const leaf: CanvasNode = { id: 'leaf', name: '铜箔', stocks: [{ code: ' 300750 ', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [] };
 const root: CanvasNode = { id: 'root', name: '新能源', stocks: [{ code: '300750', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [leaf, { id: 'other', name: '储能', stocks: [{ code: 'bad', name: '无代码', change: null, marketCap: null, pe: null }], children: [] }] };
@@ -33,6 +33,32 @@ describe('canvas keyboard navigation', () => {
   });
 });
 
+describe('canvas pan and fit helpers', () => {
+  it('starts pan only on marked blank viewport or surface', () => {
+    const blank = { closest: (selector: string) => selector === '[data-canvas-pan-surface]' ? {} : null };
+    const control = { closest: () => ({}) };
+    expect(shouldStartCanvasPan(blank)).toBe(true);
+    expect(shouldStartCanvasPan(control)).toBe(false);
+  });
+
+  it('fits wide and tall layouts with finite centered transforms and clamps zoom', () => {
+    expect(clampCanvasZoom(.1)).toBe(.55);
+    expect(clampCanvasZoom(9)).toBe(1.5);
+    for (const result of [calculateFitTransform(800, 500, 2000, 300, 24), calculateFitTransform(800, 500, 300, 2000, 24)]) {
+      expect(result.scale).toBeGreaterThanOrEqual(.55);
+      expect(result.scale).toBeLessThanOrEqual(1.5);
+      expect(Number.isFinite(result.x) && Number.isFinite(result.y)).toBe(true);
+    }
+  });
+});
+
+describe('canvas weighting', () => {
+  it('falls back from unavailable market-cap weighting and disables empty equal weighting', () => {
+    expect(resolveCanvasWeightMethod('marketCap', { hasPreviewableCompanies: true, canUseMarketCap: false })).toBe('equal');
+    expect(resolveCanvasWeightMethod('equal', { hasPreviewableCompanies: false, canUseMarketCap: false })).toBe('equal');
+  });
+});
+
 describe('IndustryCanvasNodeEditor markup', () => {
   it('renders inline form controls and protects root-only actions', () => {
     const html = renderToStaticMarkup(<IndustryCanvasNodeEditor canvas={canvas} node={root} path={[root]} onChange={() => undefined} onClose={() => undefined} />);
@@ -49,5 +75,14 @@ describe('IndustryCanvasNodeEditor markup', () => {
     const html = renderToStaticMarkup(<IndustryCanvasNodeEditor canvas={emptyCanvas} node={empty} path={[empty]} onChange={() => undefined} onClose={() => undefined} />);
     expect(html).toContain('当前分支暂无可计算公司');
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('marks an expanded editor as the active tree item and focuses a newly-created name', () => {
+    const map = renderToStaticMarkup(<IndustryCanvasMindMap canvas={canvas} selectedId="root" expandedId="root" onSelect={() => undefined} onExpand={() => undefined} onChange={() => undefined} />);
+    expect(map).toMatch(/role="treeitem"[^>]*aria-selected="true"/);
+    const editor = renderToStaticMarkup(<IndustryCanvasNodeEditor canvas={canvas} node={root} path={[root]} focusName onChange={() => undefined} onClose={() => undefined} />);
+    expect(editor).toContain('autofocus=""');
+    expect(editor).toContain('直接标的');
+    expect(editor).toContain('分支公司');
   });
 });
