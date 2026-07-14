@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CanvasNode, IndustryCanvas } from '../data/industryCanvas';
-import { calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldStartCanvasPan } from './IndustryCanvasMindMap';
+import { buildCanvasNavigationIndex, calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldCollapseCanvasEditor, shouldStartCanvasPan } from './IndustryCanvasMindMap';
 import { createLatestAsyncGuard, getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
 
 const leaf: CanvasNode = { id: 'leaf', name: '铜箔', stocks: [{ code: ' 300750 ', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [] };
@@ -50,12 +50,33 @@ describe('canvas pan and fit helpers', () => {
     }
     const fit = calculateFitTransform(500, 500, 2000, 300, 24);
     expect(2000 * fit.scale).toBeLessThanOrEqual(452);
+    const huge = calculateFitTransform(500, 400, 100000, 200000, 24);
+    expect(100000 * huge.scale).toBeLessThanOrEqual(452);
+    expect(200000 * huge.scale).toBeLessThanOrEqual(352);
   });
 
   it('clears drag only for the active pointer', () => {
     const drag = createCanvasDragState(7, 10, 20, 0, 0);
     expect(endCanvasDrag(drag, 8)).toBe(drag);
     expect(endCanvasDrag(drag, 7)).toBeNull();
+  });
+});
+
+describe('canvas navigation index', () => {
+  it('indexes large flat and deep trees with parent and sibling targets', () => {
+    const children = Array.from({ length: 1000 }, (_, index) => ({ id: `n${index}`, name: `${index}`, stocks: [], children: [] } satisfies CanvasNode));
+    const flat: CanvasNode = { id: 'r', name: 'r', stocks: [], children };
+    const index = buildCanvasNavigationIndex(flat);
+    expect(index.navigation.get('n500')?.ArrowUp).toBe('n499');
+    let deep: CanvasNode = { id: 'end', name: 'end', stocks: [], children: [] };
+    for (let i = 0; i < 500; i += 1) deep = { id: `d${i}`, name: `${i}`, stocks: [], children: [deep] };
+    expect(buildCanvasNavigationIndex(deep).nodes.size).toBe(501);
+  });
+
+  it('collapses editors on Escape except during IME composition', () => {
+    expect(shouldCollapseCanvasEditor('Escape', false)).toBe(true);
+    expect(shouldCollapseCanvasEditor('Escape', true)).toBe(false);
+    expect(shouldCollapseCanvasEditor('Enter', false)).toBe(false);
   });
 });
 
@@ -99,6 +120,7 @@ describe('IndustryCanvasNodeEditor markup', () => {
     const map = renderToStaticMarkup(<IndustryCanvasMindMap canvas={canvas} selectedId="root" expandedId="root" onSelect={() => undefined} onExpand={() => undefined} onChange={() => undefined} />);
     expect(map).toMatch(/role="treeitem"[^>]*aria-selected="true"/);
     expect(map).toContain('role="group"');
+    expect(map).toContain('role="region"');
     expect(map).not.toMatch(/role="treeitem"[^>]*><form/);
     expect(map).toContain('tabindex="-1"');
     const editor = renderToStaticMarkup(<IndustryCanvasNodeEditor canvas={canvas} node={root} path={[root]} focusName onChange={() => undefined} onClose={() => undefined} />);

@@ -220,6 +220,9 @@
 .industry-mind-map__controls button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 7px; }
 .industry-mind-map__viewport { position: relative; min-height: 0; overflow: auto; cursor: grab; }
 .industry-mind-map__surface { position: relative; transform-origin: 0 0; transition: transform .12s ease; }
+.industry-mind-map__tree-layer { position: absolute; inset: 0; }
+.industry-mind-map__editor-region { position: absolute; z-index: 3; }
+.industry-mind-map__editor-region > [role="group"], .industry-mind-map__editor-region .industry-canvas-node-editor { height: 100%; }
 .industry-mind-map__links { position: absolute; inset: 0; min-width: 0 !important; min-height: 0 !important; pointer-events: none; }
 .industry-mind-map__html-node { position: absolute; z-index: 1; }
 .industry-mind-map__html-node.is-expanded { z-index: 3; }

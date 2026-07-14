@@ -49,10 +49,10 @@ export function IndustryCanvasNodeEditor({ canvas, node, path, onChange, onClose
     onChange(next); onSelect?.(id);
   };
   const search = async (value: string) => {
-    setQuery(value); const token = searchGuard.current.next();
+    setQuery(value); const guard = searchGuard.current; const token = guard.next();
     if (!value.trim()) { setSuggestions([]); return; }
     const result = await searchSecuritySuggestions(value).catch(() => []);
-    if (searchGuard.current.isCurrent(token)) setSuggestions(result);
+    if (guard.isCurrent(token)) setSuggestions(result);
   };
   const add = (stock: SecuritySuggestion) => { searchGuard.current.next(); onChange(addStockToCanvasNode(canvas, node.id, { ...stock, change: null, marketCap: null, pe: null })); setQuery(''); setSuggestions([]); };
   return <form className="industry-canvas-node-editor" onSubmit={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>

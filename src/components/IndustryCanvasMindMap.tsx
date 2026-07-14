@@ -23,24 +23,25 @@ export function getCanvasKeyboardAction(key: string, shiftKey: boolean, isFormCo
   return shiftKey ? 'sibling' : 'child';
 }
 
-export const clampCanvasZoom = (value: number) => Math.max(.55, Math.min(1.5, Number.isFinite(value) ? value : 1));
+export const clampCanvasZoom = (value: number) => Math.max(.01, Math.min(1.5, Number.isFinite(value) ? value : 1));
 export function calculateFitTransform(viewportWidth: number, viewportHeight: number, layoutWidth: number, layoutHeight: number, padding = 24) {
   const availableWidth = Math.max(1, viewportWidth - padding * 2);
   const availableHeight = Math.max(1, viewportHeight - padding * 2);
-  const scale = Math.max(.1, Math.min(1.5, Math.min(availableWidth / Math.max(1, layoutWidth), availableHeight / Math.max(1, layoutHeight))));
+  const scale = Math.max(Number.EPSILON, Math.min(1.5, Math.min(availableWidth / Math.max(1, layoutWidth), availableHeight / Math.max(1, layoutHeight))));
   return { scale, x: (viewportWidth - layoutWidth * scale) / 2, y: (viewportHeight - layoutHeight * scale) / 2 };
 }
 export type CanvasDragState = { pointerId: number; x: number; y: number; px: number; py: number };
 export const createCanvasDragState = (pointerId: number, x: number, y: number, px: number, py: number): CanvasDragState => ({ pointerId, x, y, px, py });
 export const endCanvasDrag = (state: CanvasDragState | null, pointerId: number) => state?.pointerId === pointerId ? null : state;
 
-function buildCanvasIndex(root: CanvasNode) {
-  const nodes = new Map<string, CanvasNode>(); const paths = new Map<string, CanvasNode[]>(); const navigation = new Map<string, Record<string, string | null>>();
-  const stack: Array<{ node: CanvasNode; path: CanvasNode[] }> = [{ node: root, path: [] }];
-  while (stack.length) { const { node, path } = stack.pop()!; const nextPath = [...path, node]; nodes.set(node.id, node); paths.set(node.id, nextPath); for (let i = node.children.length - 1; i >= 0; i -= 1) stack.push({ node: node.children[i], path: nextPath }); }
-  for (const [id, path] of paths) { const node = nodes.get(id)!; const parent = path.at(-2); const siblings = parent?.children ?? []; const position = siblings.findIndex((item) => item.id === id); navigation.set(id, { ArrowLeft: parent?.id ?? null, ArrowRight: node.children[0]?.id ?? null, ArrowUp: siblings[position - 1]?.id ?? null, ArrowDown: siblings[position + 1]?.id ?? null }); }
-  return { nodes, paths, navigation };
+export function buildCanvasNavigationIndex(root: CanvasNode) {
+  const nodes = new Map<string, CanvasNode>(); const parents = new Map<string, string | null>(); const navigation = new Map<string, Record<string, string | null>>();
+  const stack: Array<{ node: CanvasNode; parentId: string | null }> = [{ node: root, parentId: null }];
+  while (stack.length) { const { node, parentId } = stack.pop()!; nodes.set(node.id, node); parents.set(node.id, parentId); node.children.forEach((child, index) => { navigation.set(child.id, { ArrowLeft: node.id, ArrowRight: child.children[0]?.id ?? null, ArrowUp: node.children[index - 1]?.id ?? null, ArrowDown: node.children[index + 1]?.id ?? null }); }); for (let i = node.children.length - 1; i >= 0; i -= 1) stack.push({ node: node.children[i], parentId: node.id }); }
+  navigation.set(root.id, { ArrowLeft: null, ArrowRight: root.children[0]?.id ?? null, ArrowUp: null, ArrowDown: null });
+  return { nodes, parents, navigation };
 }
+export const shouldCollapseCanvasEditor = (key: string, isComposing: boolean) => key === 'Escape' && !isComposing;
 type ClosestTarget = { closest: (selector: string) => unknown };
 export function shouldStartCanvasPan(target: ClosestTarget | null): boolean {
   if (!target || target.closest('button,input,textarea,select,form,[role="treeitem"],.industry-canvas-node-editor')) return false;
@@ -71,7 +72,8 @@ export function IndustryCanvasMindMap({ canvas, selectedId, expandedId, onSelect
     expandedWidth: 380,
     expandedHeight: 520,
   }), [canvas.root, selectedId, expandedId]);
-  const index = useMemo(() => buildCanvasIndex(canvas.root), [canvas.root]);
+  const index = useMemo(() => buildCanvasNavigationIndex(canvas.root), [canvas.root]);
+  const activePath = useMemo(() => { const path: CanvasNode[] = []; let id: string | null = expandedId; while (id) { const node = index.nodes.get(id); if (!node) break; path.push(node); id = index.parents.get(id) ?? null; } return path.reverse(); }, [expandedId, index]);
   const focus = (id: string) => {
     onSelect(id);
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
@@ -116,30 +118,26 @@ export function IndustryCanvasMindMap({ canvas, selectedId, expandedId, onSelect
       onPointerUp={finishDrag}
       onPointerCancel={finishDrag}
       onLostPointerCapture={finishDrag}>
-      <div data-canvas-pan-surface className="industry-mind-map__surface" role="tree" aria-label="自定义产业链节点" style={{ width: layout.width, height: layout.height, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+      <div data-canvas-pan-surface className="industry-mind-map__surface" style={{ width: layout.width, height: layout.height, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+        <div className="industry-mind-map__tree-layer" role="tree" aria-label="自定义产业链节点">
         <svg className="industry-mind-map__links" width={layout.width} height={layout.height} aria-hidden="true">
           {layout.links.map((link) => <path key={link.id} className={link.isOnSelectedPath ? 'is-path' : ''} d={`M ${link.from.x} ${link.from.y} C ${link.from.x + 30} ${link.from.y}, ${link.to.x - 30} ${link.to.y}, ${link.to.x} ${link.to.y}`} />)}
         </svg>
         {layout.nodes.map((item) => {
-          const source = index.nodes.get(item.id)!;
           const active = expandedId === item.id;
           const editorId = `canvas-editor-${item.id}`;
-          return <div key={item.id} className={`industry-mind-map__html-node ${active ? 'is-expanded' : ''}`} style={{ left: item.x, top: item.y, width: item.width, height: item.height }} onKeyDown={active ? (event) => {
-            if ((event.target as HTMLElement).closest('form')) return;
-            if (event.key === 'Escape') {
-              event.preventDefault(); onExpand(null); focus(item.id);
-            }
-          } : undefined}>
-            {active ? <><button type="button" data-canvas-node={item.id} role="treeitem" aria-selected="true" aria-controls={editorId} tabIndex={0} className="industry-mind-map__node industry-mind-map__node--expanded"><strong>{item.name}</strong></button><div id={editorId} data-canvas-editor={item.id} role="group" aria-label={`编辑 ${item.name}`}><IndustryCanvasNodeEditor canvas={canvas} node={source} path={index.paths.get(item.id)!} focusName={pendingFocusId === item.id} onChange={onChange} onClose={() => { onExpand(null); focus(item.id); }} onSelect={(id) => expandAndFocus(id, true)} onStock={onStock} onBranch={onBranch} /></div></> :
-              <button type="button" data-canvas-node={item.id} role="treeitem" tabIndex={item.id === selectedId ? 0 : -1} aria-selected={item.id === selectedId} className={`industry-mind-map__node ${item.id === selectedId ? 'is-selected' : ''} ${item.isOnSelectedPath ? 'is-path' : ''}`} onClick={() => expandAndFocus(item.id)} onKeyDown={(event) => {
+          return <div key={item.id} className="industry-mind-map__html-node" style={{ left: item.x, top: item.y, width: item.width, height: active ? 62 : item.height }}>
+              <button type="button" id={`canvas-node-${item.id}`} data-canvas-node={item.id} role="treeitem" aria-controls={active ? editorId : undefined} tabIndex={item.id === selectedId ? 0 : -1} aria-selected={item.id === selectedId} className={`industry-mind-map__node ${active ? 'industry-mind-map__node--expanded' : ''} ${item.id === selectedId ? 'is-selected' : ''} ${item.isOnSelectedPath ? 'is-path' : ''}`} onClick={() => expandAndFocus(item.id)} onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); expandAndFocus(item.id); return; }
                 const action = getCanvasKeyboardAction(event.key, event.shiftKey, false);
                 if (action) { event.preventDefault(); createFromKeyboard(item.id, action); return; }
                 const next = index.navigation.get(item.id)?.[event.key] ?? null;
                 if (next) { event.preventDefault(); focus(next); }
-              }}><strong>{item.name}</strong><small>{item.stockCount} 家直接标的 · L{item.depth + 1}</small></button>}
+              }}><strong>{item.name}</strong><small>{item.stockCount} 家直接标的 · L{item.depth + 1}</small></button>
           </div>;
         })}
+        </div>
+        {expandedId && (() => { const item = layout.nodes.find((node) => node.id === expandedId); const source = index.nodes.get(expandedId); if (!item || !source) return null; const editorId = `canvas-editor-${expandedId}`; return <div id={editorId} data-canvas-editor={expandedId} role="region" aria-labelledby={`canvas-node-${expandedId}`} className="industry-mind-map__editor-region" style={{ left: item.x, top: item.y + 62, width: item.width, height: item.height - 62 }} onKeyDown={(event) => { if (shouldCollapseCanvasEditor(event.key, event.nativeEvent.isComposing)) { event.preventDefault(); onExpand(null); focus(expandedId); } }}><div role="group" aria-label={`编辑 ${source.name}`}><IndustryCanvasNodeEditor canvas={canvas} node={source} path={activePath} focusName={pendingFocusId === expandedId} onChange={onChange} onClose={() => { onExpand(null); focus(expandedId); }} onSelect={(id) => expandAndFocus(id, true)} onStock={onStock} onBranch={onBranch} /></div></div>; })()}
       </div>
     </div>
   </div>;
