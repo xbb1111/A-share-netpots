@@ -50,7 +50,9 @@ export function saveCustomIndices(indices: StoredCustomIndex[], storage?: Storag
 
 export function trySaveCustomIndices(indices: StoredCustomIndex[], storage?: StorageLike) {
   try {
-    saveCustomIndices(indices, storage);
+    const target = getStorage(storage);
+    if (!target) return false;
+    target.setItem(CUSTOM_INDEX_STORAGE_KEY, JSON.stringify(indices));
     return true;
   } catch {
     return false;

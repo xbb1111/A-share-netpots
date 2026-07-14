@@ -1716,6 +1716,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [preview, setPreview] = useState<IndustryIndexPreview | null>(null);
   const [previewLoadFailed, setPreviewLoadFailed] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -1741,11 +1742,11 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
 
   function persist(next: StoredCustomIndex[]) {
     if (!trySaveCustomIndices(next)) {
-      setError('指数保存失败，请检查浏览器存储空间后重试');
+      setPersistenceError('指数保存失败，请检查浏览器存储空间，并重新执行刚才的保存操作');
       return false;
     }
     setIndices(next);
-    setError(null);
+    setPersistenceError(null);
     return true;
   }
 
@@ -1778,14 +1779,14 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   }
 
   function updateSelectedIndex(update: (index: StoredCustomIndex) => StoredCustomIndex) {
-    if (!selected) return;
+    if (!selected) return false;
     if (preview) {
       const next = { ...preview, index: update(preview.index) };
       setPreview(next);
       saveIndustryIndexPreview(next);
-      return;
+      return true;
     }
-    persist(indices.map((index) => index.id === selected.id ? update(index) : index));
+    return persist(indices.map((index) => index.id === selected.id ? update(index) : index));
   }
 
   function openEditor(index?: StoredCustomIndex) {
@@ -1823,9 +1824,10 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   function updateSelectedBenchmark(code: string) {
     if (!selected || !/^\d{6}$/.test(code.trim())) return;
     const benchmarkCode = code.trim();
-    setBenchmarkInput(benchmarkCode);
-    setBenchmarkSuggestions([]);
-    updateSelectedIndex((index) => ({ ...index, benchmarkCode, updatedAt: new Date().toISOString() }));
+    if (updateSelectedIndex((index) => ({ ...index, benchmarkCode, updatedAt: new Date().toISOString() }))) {
+      setBenchmarkInput(benchmarkCode);
+      setBenchmarkSuggestions([]);
+    } else setBenchmarkInput(selected.benchmarkCode ?? '');
   }
 
   function updateSelectedBenchmarkVisibility(showBenchmark: boolean) {
@@ -2137,6 +2139,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
         </button>
       </div>
 
+      {persistenceError ? <div className="custom-index-error">{persistenceError}</div> : null}
       {error ? <div className="custom-index-error">{error} <button type="button" onClick={() => previewLoadFailed ? loadRequestedPreview() : setRetryNonce((value) => value + 1)}>重试</button></div> : null}
 
       <div className="custom-index-layout">

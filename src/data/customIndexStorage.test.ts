@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   duplicateCustomIndex,
   loadCustomIndices,
@@ -32,6 +32,7 @@ const preset: StoredCustomIndex = {
 };
 
 describe('custom index storage', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('recovers from malformed local data', () => {
     expect(loadCustomIndices(createStorage({ 'alpha-desk-custom-indices': '{bad' }))).toEqual([]);
   });
@@ -62,6 +63,11 @@ describe('custom index storage', () => {
     const storage = createStorage();
     expect(trySaveCustomIndices([preset], storage)).toBe(true);
     expect(loadCustomIndices(storage)).toEqual([preset]);
+  });
+
+  it('reports failure when no browser storage exists', () => {
+    vi.stubGlobal('window', undefined);
+    expect(trySaveCustomIndices([preset])).toBe(false);
   });
 
   it('promotes a preview by replacing the same id without duplicates', () => {
