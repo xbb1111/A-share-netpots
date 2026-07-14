@@ -179,6 +179,9 @@
 .industry-canvas-editor header, .industry-canvas-editor__body { display: flex; gap: 16px; justify-content: space-between; }
 .industry-canvas-editor header button, .industry-canvas-outline > button, .industry-canvas-preview, .industry-canvas-import button { padding: 7px 10px; }
 .industry-canvas-editor__body { margin-top: 14px; align-items: stretch; }
+.industry-canvas-editor__body--mindmap { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .9fr); }
+.industry-canvas-map-panel { min-width: 0; }
+.industry-canvas-map-panel__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .industry-canvas-outline { min-width: 200px; border-right: 1px solid var(--border); padding-right: 12px; }
 .industry-canvas-outline ul { list-style: none; margin: 0; padding-left: 12px; }
 .industry-canvas-outline button, .industry-canvas-stocks button { width: 100%; text-align: left; background: transparent; color: inherit; border: 0; padding: 7px; border-radius: 6px; }
@@ -193,6 +196,9 @@
 .industry-canvas-stocks { display: flex; gap: 6px; flex-wrap: wrap; }
 .industry-canvas-stocks button { width: auto; border: 1px solid var(--border); }
 .industry-canvas-import { display: flex; gap: 6px; }
+.industry-canvas-breadcrumb { display: flex; flex-wrap: wrap; gap: 2px; font-size: 12px; color: var(--muted); }
+.industry-canvas-breadcrumb button { padding: 0; border: 0; color: inherit; background: transparent; cursor: pointer; }
+.industry-canvas-breadcrumb button.is-current { color: #f0c36a; font-weight: 700; }
 .industry-mind-map { overflow: auto; border: 1px solid rgba(94,182,201,.22); border-radius: 10px; background: radial-gradient(circle at 18% 12%, rgba(48,101,130,.2), transparent 42%), #091720; }
 .industry-mind-map__hint { display: flex; align-items: center; gap: 7px; padding: 9px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid rgba(94,182,201,.14); }
 .industry-mind-map svg { display: block; min-width: 680px; width: 100%; min-height: 300px; }
@@ -205,7 +211,7 @@
 .industry-mind-map__node.is-selected rect { fill: #28424b; stroke: #f0c36a; stroke-width: 2.2; }
 .industry-mind-map__node text { pointer-events: none; fill: var(--text); font-size: 13px; font-weight: 700; }
 .industry-mind-map__node .industry-mind-map__node-meta { fill: var(--muted); font-size: 10px; font-weight: 400; }
-@media (max-width: 760px) { .industry-canvas-editor header, .industry-canvas-editor__body { flex-direction: column; } .industry-canvas-outline { border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 12px; } }
+@media (max-width: 760px) { .industry-canvas-editor header, .industry-canvas-editor__body { flex-direction: column; } .industry-canvas-editor__body--mindmap { display: flex; } .industry-canvas-outline { border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 12px; } }
 
 @media (max-width: 640px) {
   .industry-workbench__heading, .industry-chain-intro { align-items: stretch; flex-direction: column; }

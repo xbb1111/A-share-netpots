@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutCanvasMindMap } from './canvasMindMap';
+import { getCanvasNodePath, layoutCanvasMindMap } from './canvasMindMap';
 import type { CanvasNode } from './industryCanvas';
 
 const root: CanvasNode = {
@@ -24,6 +24,7 @@ describe('canvas mind map layout', () => {
     expect(first.nodes.find((node) => node.id === 'pack')?.isOnSelectedPath).toBe(true);
     expect(first.nodes.find((node) => node.id === 'battery')?.isOnSelectedPath).toBe(true);
     expect(first.nodes.find((node) => node.id === 'lithium')?.isOnSelectedPath).toBe(false);
+    expect(getCanvasNodePath(root, 'pack').map((node) => node.id)).toEqual(['root', 'battery', 'pack']);
     expect(first.nodes.every((node) => node.x >= 0 && node.y >= 0 && node.x + node.width <= first.width && node.y + node.height <= first.height)).toBe(true);
   });
 });

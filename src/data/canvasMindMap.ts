@@ -10,18 +10,22 @@ const COLUMN_GAP = 76;
 const ROW_GAP = 18;
 const PADDING = 28;
 
-function selectedPath(root: CanvasNode, selectedId: string) {
+export function getCanvasNodePath(root: CanvasNode, selectedId: string): CanvasNode[] {
   const visit = (node: CanvasNode, path: string[]): string[] | null => {
     const next = [...path, node.id];
     if (node.id === selectedId) return next;
     for (const child of node.children) { const result = visit(child, next); if (result) return result; }
     return null;
   };
-  return new Set(visit(root, []) ?? [root.id]);
+  const ids = visit(root, []) ?? [root.id];
+  const index = new Map<string, CanvasNode>();
+  const collect = (node: CanvasNode) => { index.set(node.id, node); node.children.forEach(collect); };
+  collect(root);
+  return ids.map((id) => index.get(id)!).filter(Boolean);
 }
 
 export function layoutCanvasMindMap(root: CanvasNode, selectedId = root.id): MindMapLayout {
-  const path = selectedPath(root, selectedId);
+  const path = new Set(getCanvasNodePath(root, selectedId).map((node) => node.id));
   const nodes: MindMapNode[] = [];
   const links: MindMapLink[] = [];
   let row = 0;
