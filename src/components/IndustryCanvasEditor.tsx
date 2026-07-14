@@ -1,33 +1,50 @@
-import { useMemo, useState } from 'react';
-import { Link, Plus, Save, Search } from 'lucide-react';
-import { addCanvasChild, addStockToCanvasNode, createCanvasSharePayload, getBranchMetrics, parseCanvasSharePayload, renameCanvasNode, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Save } from 'lucide-react';
+import { createCanvasSharePayload, parseCanvasSharePayload, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
 import { getCanvasNodePath } from '../data/canvasMindMap';
-import { IndustryCanvasMindMap } from './IndustryCanvasMindMap';
-import { searchSecuritySuggestions, type SecuritySuggestion } from '../data/priceDiscipline';
 import { getComputableBranchStocks } from '../data/industryIndexPreview';
+import { IndustryCanvasMindMap } from './IndustryCanvasMindMap';
 
 export function getCanvasBranchPreviewState(node: CanvasNode, path: CanvasNode[]) {
   const companyCount = getComputableBranchStocks(node).length;
   return { disabled: companyCount === 0, companyCount, pathNames: path.map((item) => item.name), message: companyCount === 0 ? '当前分支暂无可计算公司' : '' };
 }
 
-export function IndustryCanvasEditor({ canvas, onChange, onSave, onStock, onBranch }: { canvas: IndustryCanvas; onChange: (canvas: IndustryCanvas) => void; onSave: (canvas: IndustryCanvas) => void; onStock?: (code: string, name: string) => void; onBranch?: (node: CanvasNode, method: 'equal' | 'marketCap', path: CanvasNode[]) => void }) {
-  const [selectedId, setSelectedId] = useState(canvas.root.id);
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
-  const [shareInput, setShareInput] = useState('');
-  const [weightMethod, setWeightMethod] = useState<'equal' | 'marketCap'>('equal');
-  const selected = useMemo(() => findNode(canvas.root, selectedId) ?? canvas.root, [canvas, selectedId]);
-  const path = useMemo(() => getCanvasNodePath(canvas.root, selected.id), [canvas.root, selected.id]);
-  const metrics = getBranchMetrics(selected);
-  const refreshSuggestions = async (value: string) => { setQuery(value); setSuggestions(value.trim() ? await searchSecuritySuggestions(value).catch(() => []) : []); };
-  const addSuggestion = (item: SecuritySuggestion) => { onChange(addStockToCanvasNode(canvas, selected.id, { ...item, change: null, marketCap: null, pe: null })); setSuggestions([]); setQuery(''); };
-  const importShare = () => { const imported = parseCanvasSharePayload(shareInput); if (imported) { onChange(imported); setSelectedId(imported.root.id); setShareInput(''); } };
-  const preview = getCanvasBranchPreviewState(selected, path);
-  const computableStocks = getComputableBranchStocks(selected);
-  const marketCapReady = computableStocks.length > 0 && computableStocks.every((stock) => (stock.marketCap ?? 0) > 0);
-  const addChild = () => { const id = crypto.randomUUID(); onChange(addCanvasChild(canvas, selected.id, { id, name: '新细分环节' })); setSelectedId(id); };
-  return <section className="industry-canvas-editor"><header><div><span>我的产业链</span><h3>{canvas.name}</h3><small>预览指标按去重公司计算；PE 仅纳入正值与有效值。</small></div><div><button type="button" onClick={() => navigator.clipboard?.writeText(createCanvasSharePayload(canvas, window.location.href).value)}><Link size={15} />分享</button><button type="button" onClick={() => onSave(canvas)}><Save size={15} />保存</button></div></header><div className="industry-canvas-editor__body industry-canvas-editor__body--mindmap"><div className="industry-canvas-map-panel"><div className="industry-canvas-map-panel__toolbar"><span>点击任意节点即可编辑</span><button type="button" onClick={addChild}><Plus size={15} />添加下级</button></div><IndustryCanvasMindMap root={canvas.root} selectedId={selected.id} onSelect={setSelectedId} /></div><div className="industry-canvas-inspector"><nav className="industry-canvas-breadcrumb" aria-label="当前节点路径">{path.map((node, index) => <button type="button" key={node.id} className={node.id === selected.id ? 'is-current' : ''} onClick={() => setSelectedId(node.id)}>{index ? ' / ' : ''}{node.name}</button>)}</nav><label>环节名称<input value={selected.name} onChange={(event) => onChange(renameCanvasNode(canvas, selected.id, event.target.value))} /></label><div className="industry-canvas-metrics"><span>平均涨幅 <b>{metrics.averageChange === null ? '—' : `${metrics.averageChange.toFixed(2)}%`}</b></span><span>平均 PE <b>{metrics.averagePe === null ? '—' : metrics.averagePe.toFixed(2)} <small>{metrics.peCompanyCount} / {metrics.companyCount}</small></b></span><span>平均市值 <b>{metrics.averageMarketCap === null ? '—' : metrics.averageMarketCap.toFixed(0)}</b></span></div><div className="industry-canvas-search"><Search size={15} /><input value={query} onChange={(event) => refreshSuggestions(event.target.value)} placeholder="搜索股票并一键加入" />{suggestions.map((item) => <button type="button" key={item.code} onClick={() => addSuggestion(item)}>{item.name} <small>{item.code}</small><Plus size={14} /></button>)}</div><div className="industry-canvas-stocks">{selected.stocks.map((stock) => <button type="button" key={stock.code} onClick={() => onStock?.(stock.code, stock.name)}>{stock.name}<small>{stock.code}</small></button>)}</div><div className="industry-canvas-preview"><span>临时预览</span><button type="button" className={weightMethod === 'equal' ? 'is-active' : ''} onClick={() => setWeightMethod('equal')}>等权</button><button type="button" disabled={!marketCapReady} className={weightMethod === 'marketCap' ? 'is-active' : ''} onClick={() => setWeightMethod('marketCap')}>市值加权</button><small>{preview.disabled ? preview.message : marketCapReady ? '选择权重后生成临时指数 K 线。' : '市值缺失时不能使用市值加权。'}</small><button type="button" disabled={preview.disabled} onClick={() => { if (!preview.disabled) onBranch?.(selected, weightMethod, path); }}>用本分支生成指数 K 线</button></div><div className="industry-canvas-import"><input value={shareInput} onChange={(event) => setShareInput(event.target.value)} placeholder="粘贴分享链接或 JSON" /><button type="button" onClick={importShare}>加载链接</button></div></div></div></section>;
-}
+type Props = {
+  canvas: IndustryCanvas;
+  onChange: (canvas: IndustryCanvas) => void;
+  onSave: (canvas: IndustryCanvas) => void;
+  onStock?: (code: string, name: string) => void;
+  onBranch?: (node: CanvasNode, method: 'equal' | 'marketCap', path: CanvasNode[]) => void;
+};
 
-function findNode(node: CanvasNode, id: string): CanvasNode | null { if (node.id === id) return node; for (const child of node.children) { const found = findNode(child, id); if (found) return found; } return null; }
+export function IndustryCanvasEditor({ canvas, onChange, onSave, onStock, onBranch }: Props) {
+  const [selectedId, setSelectedId] = useState(canvas.root.id);
+  const [expandedId, setExpandedId] = useState<string | null>(canvas.root.id);
+  const [shareInput, setShareInput] = useState('');
+  useEffect(() => {
+    if (!getCanvasNodePath(canvas.root, selectedId).some((node) => node.id === selectedId)) {
+      setSelectedId(canvas.root.id);
+      setExpandedId(canvas.root.id);
+    }
+  }, [canvas.root, selectedId]);
+  const share = useMemo(() => createCanvasSharePayload(canvas, typeof window === 'undefined' ? 'http://localhost/' : window.location.href), [canvas]);
+  const importShare = () => {
+    const imported = parseCanvasSharePayload(shareInput);
+    if (!imported) return;
+    onChange(imported);
+    setSelectedId(imported.root.id);
+    setExpandedId(imported.root.id);
+    setShareInput('');
+  };
+  return <section className="industry-canvas-editor">
+    <header><div><span>我的产业链</span><h3>{canvas.name}</h3><small>在画布节点内直接编辑；方向键导航，Tab 新建下级，Shift+Tab 新建同级。</small></div><div>
+      <button type="button" onClick={() => navigator.clipboard?.writeText(share.value)}><Link size={15} />分享</button>
+      <button type="button" onClick={() => onSave(canvas)}><Save size={15} />保存</button>
+    </div></header>
+    <div className="industry-canvas-map-panel">
+      <div className="industry-canvas-map-panel__toolbar"><span>点击或 Enter 展开节点，Escape 收起</span><div className="industry-canvas-import"><input aria-label="分享链接或 JSON" value={shareInput} onChange={(event) => setShareInput(event.target.value)} placeholder="粘贴分享链接或 JSON" /><button type="button" onClick={importShare}>加载链接</button></div></div>
+      <IndustryCanvasMindMap canvas={canvas} selectedId={selectedId} expandedId={expandedId} onSelect={setSelectedId} onExpand={setExpandedId} onChange={onChange} onStock={onStock} onBranch={onBranch} />
+    </div>
+  </section>;
+}
