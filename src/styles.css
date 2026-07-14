@@ -193,6 +193,18 @@
 .industry-canvas-stocks { display: flex; gap: 6px; flex-wrap: wrap; }
 .industry-canvas-stocks button { width: auto; border: 1px solid var(--border); }
 .industry-canvas-import { display: flex; gap: 6px; }
+.industry-mind-map { overflow: auto; border: 1px solid rgba(94,182,201,.22); border-radius: 10px; background: radial-gradient(circle at 18% 12%, rgba(48,101,130,.2), transparent 42%), #091720; }
+.industry-mind-map__hint { display: flex; align-items: center; gap: 7px; padding: 9px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid rgba(94,182,201,.14); }
+.industry-mind-map svg { display: block; min-width: 680px; width: 100%; min-height: 300px; }
+.industry-mind-map path { fill: none; stroke: rgba(112,154,174,.34); stroke-width: 2; }
+.industry-mind-map path.is-path { stroke: #d6aa5c; stroke-width: 2.5; }
+.industry-mind-map__node { cursor: pointer; outline: none; }
+.industry-mind-map__node rect { fill: #102633; stroke: rgba(114,170,196,.35); stroke-width: 1.2; transition: fill .16s, stroke .16s, filter .16s; }
+.industry-mind-map__node:hover rect, .industry-mind-map__node:focus rect { fill: #17394a; stroke: #65c8f0; filter: drop-shadow(0 4px 8px rgba(0,0,0,.28)); }
+.industry-mind-map__node.is-path rect { stroke: rgba(214,170,92,.7); }
+.industry-mind-map__node.is-selected rect { fill: #28424b; stroke: #f0c36a; stroke-width: 2.2; }
+.industry-mind-map__node text { pointer-events: none; fill: var(--text); font-size: 13px; font-weight: 700; }
+.industry-mind-map__node .industry-mind-map__node-meta { fill: var(--muted); font-size: 10px; font-weight: 400; }
 @media (max-width: 760px) { .industry-canvas-editor header, .industry-canvas-editor__body { flex-direction: column; } .industry-canvas-outline { border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 12px; } }
 
 @media (max-width: 640px) {
