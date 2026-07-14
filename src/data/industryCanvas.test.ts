@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addCanvasChild,
   collectBranchStocks,
@@ -13,6 +13,9 @@ import {
   updateCanvasNodeDescription,
   addCanvasSibling,
   removeStockFromCanvasNode,
+  hasCanvasNodeId,
+  isIndustryCanvas,
+  normalizeStockCode,
 } from './industryCanvas';
 
 const canvas = createIndustryCanvas({
@@ -28,6 +31,7 @@ const canvas = createIndustryCanvas({
 });
 
 describe('industry canvas model', () => {
+  afterEach(() => vi.useRealTimers());
   it('deduplicates descendant stocks and excludes non-positive PE values', () => {
     expect(collectBranchStocks(canvas.root).map((stock) => stock.code)).toEqual(['000001', '000002']);
     expect(getBranchMetrics(canvas.root)).toMatchObject({ companyCount: 2, averageChange: 2, averageMarketCap: 200, averagePe: 10, peCompanyCount: 1 });
@@ -96,5 +100,55 @@ describe('industry canvas model', () => {
     expect(findCanvasNode(updated.root, 'lithium')?.stocks.map((stock) => stock.code)).toEqual(['000001']);
     expect(updated.updatedAt).not.toBe(canvas.updatedAt);
     expect(canvas).toEqual(original);
+  });
+
+  it('rejects duplicate ids during insertion and validation', () => {
+    expect(hasCanvasNodeId(canvas.root, 'lithium')).toBe(true);
+    expect(addCanvasChild(canvas, 'materials', { id: 'root', name: 'duplicate' })).toBe(canvas);
+    expect(addCanvasSibling(canvas, 'lithium', { id: 'materials', name: 'duplicate' })).toBe(canvas);
+    expect(addCanvasChild(canvas, 'materials', { id: 'fresh', name: 'fresh', children: [{ id: 'root', name: 'nested duplicate', stocks: [], children: [] }] })).toBe(canvas);
+    const duplicate = structuredClone(canvas);
+    duplicate.root.children[0].children[0].id = 'root';
+    expect(isIndustryCanvas(duplicate)).toBe(false);
+  });
+
+  it('normalizes stock codes consistently for collect, add, remove, and metrics', () => {
+    expect(normalizeStockCode(' 000001 ')).toBe('000001');
+    const spaced = { ...canvas.root.children[0].stocks[0], code: ' 000001 ' };
+    const root = { ...canvas.root, stocks: [canvas.root.stocks[0], spaced] };
+    expect(collectBranchStocks(root).map((stock) => stock.code)).toEqual(['000001', '000002']);
+    expect(getBranchMetrics(root).companyCount).toBe(2);
+    const stockCanvas = { ...canvas, root };
+    expect(addStockToCanvasNode(stockCanvas, 'root', spaced)).toBe(stockCanvas);
+    expect(removeStockFromCanvasNode({ ...canvas, root }, 'root', ' 000001 ').root.stocks).toEqual([]);
+    const empty = addStockToCanvasNode(canvas, 'materials', { ...spaced, code: '   ' });
+    expect(findCanvasNode(empty.root, 'materials')?.stocks.at(-1)?.code).toBe('');
+  });
+
+  it('returns the same canvas for semantic no-ops and advances timestamps monotonically', () => {
+    expect(renameCanvasNode(canvas, 'root', canvas.root.name)).toBe(canvas);
+    expect(updateCanvasNodeDescription(canvas, 'root', canvas.root.description ?? '')).toBe(canvas);
+    expect(removeStockFromCanvasNode(canvas, 'root', 'missing')).toBe(canvas);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+    const future = { ...canvas, updatedAt: '2030-01-01T00:00:00.000Z' };
+    expect(renameCanvasNode(future, 'root', 'changed').updatedAt).toBe('2030-01-01T00:00:00.001Z');
+    const invalid = { ...canvas, updatedAt: 'invalid' };
+    expect(renameCanvasNode(invalid, 'root', 'changed').updatedAt).toBe('2020-01-01T00:00:00.000Z');
+  });
+
+  it('handles a 5000-level canvas without overflowing the call stack', () => {
+    let root = { id: 'deep-5000', name: '5000', stocks: [], children: [] } as typeof canvas.root;
+    for (let index = 4999; index >= 0; index -= 1) root = { id: `deep-${index}`, name: `${index}`, stocks: [], children: [root] };
+    const deepCanvas = createIndustryCanvas({ id: 'deep', name: 'deep', root });
+    expect(findCanvasNode(root, 'deep-5000')?.id).toBe('deep-5000');
+    expect(collectBranchStocks(root)).toEqual([]);
+    expect(isIndustryCanvas(deepCanvas)).toBe(true);
+    const added = addCanvasChild(deepCanvas, 'deep-5000', { id: 'new-leaf', name: 'new' });
+    const withSibling = addCanvasSibling(added, 'new-leaf', { id: 'new-sibling', name: 'sibling' });
+    const renamed = renameCanvasNode(withSibling, 'deep-5000', 'renamed');
+    const removed = removeCanvasNode(renamed, 'new-leaf');
+    expect(findCanvasNode(removed.root, 'deep-5000')?.name).toBe('renamed');
+    expect(findCanvasNode(removed.root, 'new-leaf')).toBeUndefined();
   });
 });

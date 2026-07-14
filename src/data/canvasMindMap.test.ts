@@ -111,4 +111,26 @@ describe('canvas mind map layout', () => {
       for (let j = i + 1; j < first.nodes.length; j += 1) expect(rectanglesOverlap(first.nodes[i], first.nodes[j])).toBe(false);
     }
   });
+
+  it('rejects duplicate ids before links can be miswired', () => {
+    const duplicate: CanvasNode = { ...root, children: [...root.children, { id: 'root', name: 'duplicate', stocks: [], children: [] }] };
+    expect(() => layoutCanvasMindMap(duplicate)).toThrow(/duplicate canvas node id/i);
+  });
+
+  it('clamps extreme expanded dimensions and keeps bounds finite', () => {
+    const layout = layoutCanvasMindMap(root, 'battery', { expandedId: 'battery', expandedWidth: Number.MAX_VALUE, expandedHeight: Number.MAX_VALUE });
+    const expanded = layout.nodes.find((node) => node.id === 'battery')!;
+    expect(expanded.width).toBe(1200);
+    expect(expanded.height).toBe(1600);
+    expect([layout.width, layout.height, ...layout.nodes.flatMap((node) => [node.x, node.y, node.width, node.height])].every(Number.isFinite)).toBe(true);
+  });
+
+  it('lays out a 5000-level chain without overflowing the call stack', () => {
+    let deep: CanvasNode = { id: 'deep-5000', name: 'leaf', stocks: [], children: [] };
+    for (let index = 4999; index >= 0; index -= 1) deep = { id: `deep-${index}`, name: `${index}`, stocks: [], children: [deep] };
+    const layout = layoutCanvasMindMap(deep, 'deep-5000', { expandedId: 'deep-2500', expandedWidth: 500, expandedHeight: 300 });
+    expect(layout.nodes).toHaveLength(5001);
+    expect(layout.links).toHaveLength(5000);
+    expect(Number.isFinite(layout.width)).toBe(true);
+  });
 });
