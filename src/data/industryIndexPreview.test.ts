@@ -46,6 +46,19 @@ describe('industry index preview', () => {
     expect(preview).toMatchObject({ sourcePath: ['新能源', '材料'], totalCompanyCount: 2 });
   });
 
+  it('normalizes codes before deduplicating securities', () => {
+    const node: CanvasNode = {
+      id: 'trimmed', name: '规范化', children: [],
+      stocks: [
+        { code: '300750 ', name: '带空格', change: null, marketCap: null, pe: null },
+        { code: '300750', name: '无空格', change: null, marketCap: null, pe: null },
+      ],
+    };
+    expect(buildIndustryIndexPreview(node, 'equal', ['规范化'], () => 'trimmed').index.components).toEqual([
+      expect.objectContaining({ code: '300750', name: '带空格' }),
+    ]);
+  });
+
   it('stores previews by id without touching custom-index local storage', () => {
     const session = fakeStorage();
     const local = fakeStorage();

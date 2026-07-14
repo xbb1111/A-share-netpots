@@ -11,7 +11,15 @@ const keyFor = (id: string) => `${PREVIEW_KEY_PREFIX}${id}`;
 const validSecurityCode = (code: string) => /^\d{6}$/.test(code.trim());
 function defaultStorage(): StorageLike | null { if (typeof window === 'undefined') return null; try { return window.sessionStorage; } catch { return null; } }
 
-export function getComputableBranchStocks(node: CanvasNode) { return collectBranchStocks(node).filter((stock) => validSecurityCode(stock.code)); }
+export function getComputableBranchStocks(node: CanvasNode) {
+  const seen = new Set<string>();
+  return collectBranchStocks(node).flatMap((stock) => {
+    const code = stock.code.trim();
+    if (!validSecurityCode(code) || seen.has(code)) return [];
+    seen.add(code);
+    return [{ ...stock, code }];
+  });
+}
 
 export function buildIndustryIndexPreview(node: CanvasNode, method: IndustryIndexPreviewRequest['method'], sourcePath: string[], createId: () => string = () => crypto.randomUUID()): IndustryIndexPreview {
   const stocks = getComputableBranchStocks(node);
