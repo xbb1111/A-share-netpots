@@ -9,6 +9,25 @@ import {
 } from './financial-report-api.mjs';
 
 describe('financial-report-api helpers', () => {
+  it('falls back to Tencent daily K-lines after Eastmoney retries fail', async () => {
+    const fetcher = globalThis.fetch;
+    const hosts = [];
+    globalThis.fetch = async (url) => {
+      const host = new URL(String(url)).hostname;
+      hosts.push(host);
+      if (host === 'push2his.eastmoney.com') return { ok: false, status: 520, text: async () => 'upstream unavailable' };
+      return { ok: true, json: async () => ({ code: 0, data: { sz300750: { qfqday: [['2026-07-15', '368.01', '373.00', '379.99', '363.08', '358493']], qt: { sz300750: ['51', '宁德时代'] } } } }) };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/market-kline?code=300750&klt=101&limit=5'));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ data: { code: '300750', name: '宁德时代', klines: ['2026-07-15,368.01,373.00,379.99,363.08,358493,0,0'] } });
+      expect(hosts).toEqual(['push2his.eastmoney.com', 'push2his.eastmoney.com', 'web.ifzq.gtimg.cn']);
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
+
   it('falls back to the delayed quote host for security metrics', async () => {
     const fetcher = globalThis.fetch;
     const hosts = [];

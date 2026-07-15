@@ -127,7 +127,32 @@ async function getMarketKline(params) {
   url.searchParams.set('end', '20500101'); url.searchParams.set('iscca', '1');
   url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
   url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
-  try { return await fetchJson(url); } catch { return fetchJson(url); }
+  try { return await fetchJson(url); } catch {
+    try { return await fetchJson(url); } catch (error) {
+      if (klt === '101' || klt === '102') return getTencentKline(code, klt, limit);
+      throw error;
+    }
+  }
+}
+
+async function getTencentKline(code, klt, limit) {
+  const prefix = getMarketSecid(code).startsWith('1.') ? 'sh' : 'sz';
+  const symbol = `${prefix}${code}`;
+  const period = klt === '102' ? 'week' : 'day';
+  const url = new URL('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get');
+  url.searchParams.set('param', `${symbol},${period},,,${limit},qfq`);
+  const payload = await fetchJson(url);
+  const security = payload.data?.[symbol] ?? {};
+  const rows = security[`qfq${period}`] ?? security[period] ?? [];
+  const quote = security.qt?.[symbol] ?? [];
+  return {
+    rc: payload.code ?? 0,
+    data: {
+      code,
+      name: String(quote[1] ?? code),
+      klines: rows.map((row) => [row[0], row[1], row[2], row[3], row[4], row[5], 0, 0].join(',')),
+    },
+  };
 }
 
 async function getSecurityMetrics(code) {
