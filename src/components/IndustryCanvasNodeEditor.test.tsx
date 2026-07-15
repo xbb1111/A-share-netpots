@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CanvasNode, IndustryCanvas } from '../data/industryCanvas';
 import { buildCanvasNavigationIndex, calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldCollapseCanvasEditor, shouldStartCanvasPan, stepCanvasZoom } from './IndustryCanvasMindMap';
-import { createLatestAsyncGuard, getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
+import { createLatestAsyncGuard, getCanvasNodeEditorState, hasMissingStockMetrics, IndustryCanvasNodeEditor, mergeStockMetrics, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
 
 const leaf: CanvasNode = { id: 'leaf', name: '铜箔', stocks: [{ code: ' 300750 ', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [] };
 const root: CanvasNode = { id: 'root', name: '新能源', stocks: [{ code: '300750', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [leaf, { id: 'other', name: '储能', stocks: [{ code: 'bad', name: '无代码', change: null, marketCap: null, pe: null }], children: [] }] };
@@ -105,6 +105,14 @@ describe('canvas weighting', () => {
   it('falls back from unavailable market-cap weighting and disables empty equal weighting', () => {
     expect(resolveCanvasWeightMethod('marketCap', { hasPreviewableCompanies: true, canUseMarketCap: false })).toBe('equal');
     expect(resolveCanvasWeightMethod('equal', { hasPreviewableCompanies: false, canUseMarketCap: false })).toBe('equal');
+  });
+});
+
+describe('stock metric refresh', () => {
+  it('offers refresh when any metric is missing and preserves existing values on a partial response', () => {
+    const partial = { code: '300750', name: '宁德时代', change: 2, marketCap: null, pe: 20 };
+    expect(hasMissingStockMetrics(partial)).toBe(true);
+    expect(mergeStockMetrics(partial, { change: null, marketCap: 120, pe: null })).toMatchObject({ change: 2, marketCap: 120, pe: 20 });
   });
 });
 
