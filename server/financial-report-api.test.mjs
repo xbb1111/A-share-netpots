@@ -9,6 +9,24 @@ import {
 } from './financial-report-api.mjs';
 
 describe('financial-report-api helpers', () => {
+  it('falls back to the delayed quote host for security metrics', async () => {
+    const fetcher = globalThis.fetch;
+    const hosts = [];
+    globalThis.fetch = async (url) => {
+      hosts.push(new URL(String(url)).hostname);
+      if (hosts.length === 1) return { ok: false, status: 502, text: async () => 'upstream unavailable' };
+      return { ok: true, json: async () => ({ data: { f43: 37300, f162: 2080, f116: 1725740771153, f170: 247 } }) };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/security-metrics?code=300750'));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ data: { f43: 37300, f116: 1725740771153 } });
+      expect(hosts).toEqual(['push2.eastmoney.com', 'push2delay.eastmoney.com']);
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
+
   it('proxies and normalizes an industry board constituent response', async () => {
     const fetcher = globalThis.fetch;
     globalThis.fetch = async (url) => {

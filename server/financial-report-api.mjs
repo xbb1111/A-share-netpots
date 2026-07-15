@@ -131,10 +131,15 @@ async function getMarketKline(params) {
 }
 
 async function getSecurityMetrics(code) {
-  const url = new URL('https://push2.eastmoney.com/api/qt/stock/get');
-  url.searchParams.set('secid', getMarketSecid(code));
-  url.searchParams.set('fields', 'f43,f162,f116,f170');
-  return fetchJson(url);
+  const hosts = ['push2.eastmoney.com', 'push2delay.eastmoney.com'];
+  let lastError;
+  for (const host of hosts) {
+    const url = new URL(`https://${host}/api/qt/stock/get`);
+    url.searchParams.set('secid', getMarketSecid(code));
+    url.searchParams.set('fields', 'f43,f162,f116,f170');
+    try { return await fetchJson(url); } catch (error) { lastError = error; }
+  }
+  throw lastError ?? new Error('Security metrics unavailable');
 }
 
 async function getIndustryCompanies(boardCode) {
