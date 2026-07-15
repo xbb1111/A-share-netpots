@@ -3,18 +3,23 @@ import { Plus, Search, Trash2, X } from 'lucide-react';
 import { addCanvasChild, addCanvasSibling, addStockToCanvasNode, collectBranchStocks, getBranchMetrics, removeCanvasNode, removeStockFromCanvasNode, renameCanvasNode, updateCanvasNodeDescription, type CanvasNode, type IndustryCanvas } from '../data/industryCanvas';
 import { getComputableBranchStocks } from '../data/industryIndexPreview';
 import { searchSecuritySuggestions, type SecuritySuggestion } from '../data/priceDiscipline';
+import { fetchSecurityMetrics } from '../data/customIndexService';
 
 export function getCanvasNodeEditorState(node: CanvasNode) {
   const branchStocks = collectBranchStocks(node);
   const metrics = getBranchMetrics(node);
   const previewable = getComputableBranchStocks(node);
+  const marketCapIncludedCount = previewable.filter((stock) => typeof stock.marketCap === 'number' && Number.isFinite(stock.marketCap) && stock.marketCap > 0).length;
   return {
     directCompanyCount: node.stocks.length,
     branchCompanyCount: branchStocks.length,
     metrics,
     peIncludedCount: metrics.peCompanyCount,
     peTotalCount: metrics.companyCount,
-    canUseMarketCap: branchStocks.length > 0 && branchStocks.every((stock) => typeof stock.marketCap === 'number' && Number.isFinite(stock.marketCap) && stock.marketCap > 0),
+    marketCapIncludedCount,
+    marketCapTotalCount: branchStocks.length,
+    previewableCompanyCount: previewable.length,
+    canUseMarketCap: marketCapIncludedCount > 0,
     hasPreviewableCompanies: previewable.length > 0,
   };
 }
@@ -34,6 +39,8 @@ type Props = { canvas: IndustryCanvas; node: CanvasNode; path: CanvasNode[]; onC
 export function IndustryCanvasNodeEditor({ canvas, node, path, onChange, onClose, onSelect, onStock, onBranch, focusName }: Props) {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [addError, setAddError] = useState('');
+  const [addingCode, setAddingCode] = useState('');
   const [weight, setWeight] = useState<CanvasWeightMethod>('equal');
   const [nameDraft, setNameDraft] = useState(node.name);
   const [descriptionDraft, setDescriptionDraft] = useState(node.description ?? '');
@@ -49,21 +56,29 @@ export function IndustryCanvasNodeEditor({ canvas, node, path, onChange, onClose
     onChange(next); onSelect?.(id);
   };
   const search = async (value: string) => {
-    setQuery(value); const guard = searchGuard.current; const token = guard.next();
+    setQuery(value); setAddingCode(''); const guard = searchGuard.current; const token = guard.next();
     if (!value.trim()) { setSuggestions([]); return; }
     const result = await searchSecuritySuggestions(value).catch(() => []);
     if (guard.isCurrent(token)) setSuggestions(result);
   };
-  const add = (stock: SecuritySuggestion) => { searchGuard.current.next(); onChange(addStockToCanvasNode(canvas, node.id, { ...stock, change: null, marketCap: null, pe: null })); setQuery(''); setSuggestions([]); };
+  const add = async (stock: SecuritySuggestion) => {
+    const guard = searchGuard.current; const token = guard.next(); setAddingCode(stock.code); setAddError('');
+    let metrics = { change: null as number | null, marketCap: null as number | null, pe: null as number | null };
+    let error = '';
+    try { const quote = await fetchSecurityMetrics(stock.code); metrics = { change: quote.change, marketCap: quote.marketCap, pe: quote.pe }; } catch { error = '行情指标暂时不可用，已加入股票，稍后可重试。'; }
+    if (!guard.isCurrent(token)) return;
+    setAddError(error);
+    onChange(addStockToCanvasNode(canvas, node.id, { ...stock, ...metrics })); setQuery(''); setSuggestions([]); setAddingCode('');
+  };
   return <form className="industry-canvas-node-editor" onSubmit={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
     <div className="industry-canvas-node-editor__head"><nav aria-label="当前节点完整路径">{path.map((item, index) => <button type="button" key={item.id} onClick={() => onSelect?.(item.id)}>{index ? ' / ' : ''}{item.name}</button>)}</nav><button type="button" aria-label="收起编辑器" onClick={onClose}><X size={15} /></button></div>
     <label>环节名称<input data-canvas-node-name autoFocus={focusName} value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => onChange(renameCanvasNode(canvas, node.id, nameDraft))} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); onChange(renameCanvasNode(canvas, node.id, nameDraft)); event.currentTarget.blur(); } }} /></label>
     <label>说明<textarea value={descriptionDraft} onChange={(event) => setDescriptionDraft(event.target.value)} onBlur={() => onChange(updateCanvasNodeDescription(canvas, node.id, descriptionDraft))} /></label>
     <div className="industry-canvas-company-counts">直接标的 {state.directCompanyCount} / 分支公司 {state.branchCompanyCount}</div>
     <div className="industry-canvas-metrics"><span>平均涨幅 <b>{state.metrics.averageChange === null ? '—' : `${state.metrics.averageChange.toFixed(2)}%`}</b></span><span>平均 PE <b>{state.metrics.averagePe === null ? '—' : state.metrics.averagePe.toFixed(2)} <small>{state.peIncludedCount}/{state.peTotalCount}</small></b></span><span>平均市值 <b>{state.metrics.averageMarketCap === null ? '—' : state.metrics.averageMarketCap.toFixed(0)}</b></span></div>
-    <div className="industry-canvas-search"><Search size={15} /><input value={query} onChange={(event) => void search(event.target.value)} placeholder="搜索股票并一键加入" />{suggestions.map((item) => <button type="button" key={item.code} onClick={() => add(item)}>{item.name}<small>{item.code}</small><Plus size={13} /></button>)}</div>
+    <div className="industry-canvas-search"><Search size={15} /><input value={query} onChange={(event) => void search(event.target.value)} placeholder="搜索股票并一键加入" />{suggestions.map((item) => <button type="button" disabled={Boolean(addingCode)} key={item.code} onClick={() => void add(item)}>{item.name}<small>{addingCode === item.code ? '读取行情…' : item.code}</small><Plus size={13} /></button>)}{addError ? <small role="status">{addError}</small> : null}</div>
     <div className="industry-canvas-stocks">{node.stocks.map((stock) => <span key={stock.code}><button type="button" onClick={() => onStock?.(stock.code, stock.name)}>{stock.name}<small>{stock.code}</small></button><button type="button" aria-label={`删除 ${stock.name}`} onClick={() => onChange(removeStockFromCanvasNode(canvas, node.id, stock.code))}><X size={12} /></button></span>)}</div>
     <div className="industry-canvas-node-editor__actions"><button type="button" onClick={() => createNode('child')}><Plus size={14} />添加子节点</button><button type="button" disabled={isRoot} onClick={() => createNode('sibling')}>添加同级</button><button type="button" disabled={isRoot} onClick={() => { onChange(removeCanvasNode(canvas, node.id)); onSelect?.(path.at(-2)?.id ?? canvas.root.id); }}><Trash2 size={14} />删除当前</button></div>
-    <div className="industry-canvas-preview"><div><button type="button" disabled={!state.hasPreviewableCompanies} className={weight === 'equal' ? 'is-active' : ''} onClick={() => setWeight('equal')}>等权</button><button type="button" disabled={!state.hasPreviewableCompanies || !state.canUseMarketCap} className={weight === 'marketCap' ? 'is-active' : ''} onClick={() => setWeight('marketCap')}>市值加权</button></div><small>{!state.hasPreviewableCompanies ? '当前分支暂无可计算公司' : !state.canUseMarketCap ? '部分公司缺少有效市值，只能使用等权。' : `分支共 ${state.branchCompanyCount} 家公司`}</small><button type="button" disabled={!state.hasPreviewableCompanies} onClick={() => { const method = resolveCanvasWeightMethod(weight, state); if (state.hasPreviewableCompanies && (method !== 'marketCap' || state.canUseMarketCap)) onBranch?.(node, method, path); }}>用本分支生成指数 K 线</button></div>
+    <div className="industry-canvas-preview"><div><button type="button" disabled={!state.hasPreviewableCompanies} className={weight === 'equal' ? 'is-active' : ''} onClick={() => setWeight('equal')}>等权</button><button type="button" disabled={!state.canUseMarketCap} className={weight === 'marketCap' ? 'is-active' : ''} onClick={() => setWeight('marketCap')}>市值加权</button></div><small>{!state.hasPreviewableCompanies ? '当前分支暂无可计算公司' : weight === 'marketCap' ? `纳入计算 ${state.marketCapIncludedCount} / 分支公司 ${state.marketCapTotalCount}` : `纳入计算 ${state.previewableCompanyCount} / 分支公司 ${state.branchCompanyCount}`}</small><button type="button" disabled={!state.hasPreviewableCompanies || (weight === 'marketCap' && !state.canUseMarketCap)} onClick={() => { const method = resolveCanvasWeightMethod(weight, state); if (state.hasPreviewableCompanies && (method !== 'marketCap' || state.canUseMarketCap)) onBranch?.(node, method, path); }}>用本分支生成指数 K 线</button></div>
   </form>;
 }

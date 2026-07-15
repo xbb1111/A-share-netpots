@@ -65,6 +65,15 @@ describe('industry canvas model', () => {
     expect(twice.root.children[0].stocks.filter((stock) => stock.code === '600000')).toHaveLength(1);
   });
 
+  it('excludes missing and non-positive market caps from branch averages', () => {
+    const node = { id: 'metrics', name: '指标', stocks: [
+      { code: '000001', name: '甲', change: 1, marketCap: 100, pe: 10 },
+      { code: '000002', name: '乙', change: -1, marketCap: 0, pe: 0 },
+      { code: '000003', name: '丙', change: 2, marketCap: -50, pe: null },
+    ], children: [] };
+    expect(getBranchMetrics(node)).toMatchObject({ companyCount: 3, averageMarketCap: 100, averagePe: 10 });
+  });
+
   it('finds deeply nested nodes without changing the tree', () => {
     expect(findCanvasNode(canvas.root, 'lithium')?.id).toBe('lithium');
     expect(findCanvasNode(canvas.root, 'missing')).toBeUndefined();

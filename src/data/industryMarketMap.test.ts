@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndustryMarketMap } from './industryMarketMap';
+import { buildIndustryMarketMap, buildIndustryMarketMapWithStats } from './industryMarketMap';
 
 const boards = [
   { code: 'ROOT-A', name: '信息技术', level: 1 as const, heat: 80, change: 0, capitalFlow: 2 },
@@ -93,5 +93,15 @@ describe('industry market constellation layout', () => {
     expect(buildIndustryMarketMap(metricBoards, 'heat', 800, 440).items.find((item) => item.code === 'HOT')?.featured).toBe(true);
     expect(buildIndustryMarketMap(metricBoards, 'change', 800, 440).items.find((item) => item.code === 'HOT')?.featured).toBe(false);
     expect(buildIndustryMarketMap(metricBoards, 'change', 800, 440).items.find((item) => item.code === 'MOVE')?.featured).toBe(true);
+  });
+
+  it('packs 400+ cells without overlaps using bounded candidate checks', () => {
+    const dense = Array.from({ length: 420 }, (_, index) => ({ code: `P${index.toString().padStart(4, '0')}`, name: `软件${index}`, level: 2 as const, heat: 500 - index, change: index % 3 - 1 }));
+    const { map, candidateChecks } = buildIndustryMarketMapWithStats(dense, 'heat', 1200, 800);
+    expect(candidateChecks).toBeLessThan(420 * 300);
+    for (let index = 0; index < map.items.length; index += 1) for (let other = index + 1; other < map.items.length; other += 1) {
+      const a = map.items[index]; const b = map.items[other];
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(a.r + b.r - 0.01);
+    }
   });
 });

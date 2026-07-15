@@ -14,17 +14,20 @@ export type CustomIndexData = {
   fetchedAt: string;
 };
 
-async function fetchQuote(code: string, fetcher: Fetcher) {
+export type SecurityMetrics = { price: number | null; pe: number | null; marketCap: number | null; change: number | null };
+
+export async function fetchSecurityMetrics(code: string, fetcher: Fetcher = fetch): Promise<SecurityMetrics> {
   const url = new URL('https://push2.eastmoney.com/api/qt/stock/get');
   url.searchParams.set('secid', getSecid(code));
-  url.searchParams.set('fields', 'f43,f162,f116');
+  url.searchParams.set('fields', 'f43,f162,f116,f170');
   const response = await fetcher(url.toString());
-  if (!response.ok) return { price: null, pe: null, marketCap: null };
-  const payload = (await response.json()) as { data?: { f43?: number; f162?: number; f116?: number } };
+  if (!response.ok) return { price: null, pe: null, marketCap: null, change: null };
+  const payload = (await response.json()) as { data?: { f43?: number; f162?: number; f116?: number; f170?: number } };
   return {
     price: typeof payload.data?.f43 === 'number' && payload.data.f43 > 0 ? payload.data.f43 / 100 : null,
     pe: typeof payload.data?.f162 === 'number' ? payload.data.f162 / 100 : null,
     marketCap: typeof payload.data?.f116 === 'number' && payload.data.f116 > 0 ? payload.data.f116 : null,
+    change: typeof payload.data?.f170 === 'number' ? payload.data.f170 / 100 : null,
   };
 }
 
@@ -46,7 +49,7 @@ export async function fetchCustomIndexData(
       try {
         const [kline, quote] = await Promise.all([
           fetchKlineData({ code: component.code, period, limit: 2000, fetcher }),
-          fetchQuote(component.code, fetcher),
+          fetchSecurityMetrics(component.code, fetcher),
         ]);
         histories[component.code] = kline.bars.map((bar) => ({
           date: bar.time,

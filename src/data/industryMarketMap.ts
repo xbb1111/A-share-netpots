@@ -32,9 +32,24 @@ function fallbackGroup(name: string): { id: string; name: string } {
 
 function toneFor(change: number): IndustryMarketTone { return change > 0 ? 'up' : change < 0 ? 'down' : 'flat'; }
 
-export function buildIndustryMarketMap<T extends MarketBoard>(boards: T[], metric: IndustryMarketMetric, width: number, height: number): IndustryMarketMap {
+type PackedPoint = { x: number; y: number };
+
+function packRows(radii: number[], width: number) {
+  const padding = 7; const gap = 2; const points: PackedPoint[] = [];
+  let x = padding; let rowTop = 0; let rowHeight = 0; let candidateChecks = 0;
+  for (const radius of radii) {
+    const diameter = radius * 2;
+    candidateChecks += 1;
+    if (x > padding && x + diameter > width - padding) { rowTop += rowHeight + gap; x = padding; rowHeight = 0; }
+    points.push({ x: x + radius, y: rowTop + radius });
+    x += diameter + gap; rowHeight = Math.max(rowHeight, diameter);
+  }
+  return { points, height: rowTop + rowHeight, candidateChecks };
+}
+
+export function buildIndustryMarketMapWithStats<T extends MarketBoard>(boards: T[], metric: IndustryMarketMetric, width: number, height: number): { map: IndustryMarketMap; candidateChecks: number } {
   const bounds = { width: Math.max(640, width), height: Math.max(360, height) };
-  if (!boards.length) return { groups: [], items: [], bounds };
+  if (!boards.length) return { map: { groups: [], items: [], bounds }, candidateChecks: 0 };
   const byCode = new Map(boards.map((board) => [board.code, board]));
   const groupFor = (board: T) => {
     let current: MarketBoard | undefined = board;
@@ -57,33 +72,28 @@ export function buildIndustryMarketMap<T extends MarketBoard>(boards: T[], metri
   const metricValue = (board: MarketBoard) => metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change);
   const featured = new Set([...boards].sort((a, b) => metricValue(b) - metricValue(a) || a.code.localeCompare(b.code)).slice(0, 3).map((b) => b.code));
   const radiusFor = (board: MarketBoard) => 20 + 16 * Math.sqrt((metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change)) / maxValue);
-  const desiredHeights = entries.map(([, bucket]) => {
-    const occupiedArea = bucket.boards.reduce((sum, board) => sum + Math.PI * (radiusFor(board) + 3) ** 2, 0);
-    const packingAllowance = bucket.boards.length > 40 ? 2.25 : 1.4;
-    return Math.max(180, 48 + occupiedArea * packingAllowance / Math.max(100, groupWidth - 16));
-  });
+  const plans = entries.map(([, bucket]) => packRows(bucket.boards.map(radiusFor), groupWidth));
+  const desiredHeights = plans.map((plan) => Math.max(180, 40 + plan.height + 8));
   const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(...desiredHeights.slice(row * columns, (row + 1) * columns)));
   const contentHeight = outer * 2 + gap * (rows - 1) + rowHeights.reduce((sum, value) => sum + value, 0);
   bounds.height = Math.max(bounds.height, Math.ceil(contentHeight));
+  let candidateChecks = 0;
   entries.forEach(([id, bucket], groupIndex) => {
     const column = groupIndex % columns; const row = Math.floor(groupIndex / columns);
     const groupY = outer + rowHeights.slice(0, row).reduce((sum, value) => sum + value + gap, 0);
     const group = { id, name: bucket.name, x: outer + column * (groupWidth + gap), y: groupY, width: groupWidth, height: rowHeights[row] };
     groups.push(group);
-    const usableTop = group.y + 32; const usableHeight = Math.max(30, group.height - 40);
+    const usableTop = group.y + 32;
     const radii = bucket.boards.map(radiusFor);
-    const placed: Array<{ x: number; y: number; r: number }> = [];
+    const plan = plans[groupIndex]; candidateChecks += plan.candidateChecks;
     bucket.boards.forEach((board, index) => {
-      const radius = radii[index]; let point = { x: group.x + group.width / 2, y: usableTop + usableHeight / 2 };
-      for (let step = 0; step < 20000; step += 1) {
-        const angle = step * 2.399963; const distance = 2.2 * Math.sqrt(step) * Math.max(1, radius / 10);
-        const candidate = { x: group.x + group.width / 2 + Math.cos(angle) * distance, y: usableTop + usableHeight / 2 + Math.sin(angle) * distance };
-        const inside = candidate.x - radius >= group.x + 5 && candidate.x + radius <= group.x + group.width - 5 && candidate.y - radius >= usableTop && candidate.y + radius <= usableTop + usableHeight;
-        if (inside && placed.every((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) >= radius + other.r + 2)) { point = candidate; break; }
-      }
-      placed.push({ ...point, r: radius });
+      const radius = radii[index]; const point = { x: group.x + plan.points[index].x, y: usableTop + plan.points[index].y };
       items.push({ ...board, groupId: id, groupName: bucket.name, ...point, r: radius, tone: toneFor(board.change), featured: featured.has(board.code) });
     });
   });
-  return { groups, items, bounds };
+  return { map: { groups, items, bounds }, candidateChecks };
+}
+
+export function buildIndustryMarketMap<T extends MarketBoard>(boards: T[], metric: IndustryMarketMetric, width: number, height: number): IndustryMarketMap {
+  return buildIndustryMarketMapWithStats(boards, metric, width, height).map;
 }

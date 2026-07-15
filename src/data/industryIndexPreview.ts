@@ -61,15 +61,20 @@ export function getComputableBranchStocks(node: CanvasNode) {
 
 export function buildIndustryIndexPreview(node: CanvasNode, method: IndustryIndexPreviewRequest['method'], sourcePath: string[], createId: () => string = () => crypto.randomUUID()): IndustryIndexPreview {
   const stocks = getComputableBranchStocks(node);
+  const included = method === 'marketCap'
+    ? stocks.filter((stock) => typeof stock.marketCap === 'number' && Number.isFinite(stock.marketCap) && stock.marketCap > 0)
+    : stocks;
   const index = createCustomIndex({
     name: `${node.name} 指数`, description: '行业或产业链生成的临时指数预览', tags: ['行业预览'],
-    components: stocks.map((stock) => ({ name: stock.name, code: stock.code.trim(), industry: stock.industry ?? '产业链', marketCap: stock.marketCap ?? undefined })),
+    components: included.map((stock) => ({ name: stock.name, code: stock.code.trim(), industry: stock.industry ?? '产业链', marketCap: stock.marketCap ?? undefined })),
     weightMethod: method, rebalanceFrequency: 'monthly', baseValue: 100,
   }, createId);
   return { index, sourcePath: [...sourcePath], totalCompanyCount: stocks.length, createdAt: index.createdAt };
 }
 
-export function saveIndustryIndexPreview(preview: IndustryIndexPreview, storage?: StorageLike) { (storage ?? defaultStorage())?.setItem(keyFor(preview.index.id), JSON.stringify(preview)); }
+export function saveIndustryIndexPreview(preview: IndustryIndexPreview, storage?: StorageLike) {
+  try { const target = storage ?? defaultStorage(); if (!target) return false; target.setItem(keyFor(preview.index.id), JSON.stringify(preview)); return true; } catch { return false; }
+}
 export function loadIndustryIndexPreview(id: string, storage?: StorageLike): IndustryIndexPreview | null {
   const source = storage ?? defaultStorage(); if (!source) return null;
   try {
@@ -78,6 +83,6 @@ export function loadIndustryIndexPreview(id: string, storage?: StorageLike): Ind
     return isIndustryIndexPreview(value) && value.index.id === id ? value : null;
   } catch { return null; }
 }
-export function removeIndustryIndexPreview(id: string, storage?: StorageLike) { (storage ?? defaultStorage())?.removeItem(keyFor(id)); }
+export function removeIndustryIndexPreview(id: string, storage?: StorageLike) { try { (storage ?? defaultStorage())?.removeItem(keyFor(id)); return true; } catch { return false; } }
 export function consumeIndustryIndexPreview(id: string, storage?: StorageLike) { const preview = loadIndustryIndexPreview(id, storage); if (preview) removeIndustryIndexPreview(id, storage); return preview; }
 export function toIndustryIndexPreviewHash(id: string) { return `toolbox?tool=index&preview=${encodeURIComponent(id)}`; }

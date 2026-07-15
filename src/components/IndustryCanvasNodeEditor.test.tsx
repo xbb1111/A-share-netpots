@@ -10,11 +10,15 @@ const canvas: IndustryCanvas = { version: 1, id: 'c', name: '链', description: 
 
 describe('canvas node editor view model', () => {
   it('counts direct and unique recursive companies and exposes metric readiness', () => {
-    expect(getCanvasNodeEditorState(root)).toMatchObject({ directCompanyCount: 1, branchCompanyCount: 2, peIncludedCount: 1, peTotalCount: 2, canUseMarketCap: false, hasPreviewableCompanies: true });
+    expect(getCanvasNodeEditorState(root)).toMatchObject({ directCompanyCount: 1, branchCompanyCount: 2, peIncludedCount: 1, peTotalCount: 2, canUseMarketCap: true, hasPreviewableCompanies: true });
   });
 
   it('requires every unique branch company to have a positive finite market cap', () => {
     expect(getCanvasNodeEditorState(leaf).canUseMarketCap).toBe(true);
+  });
+
+  it('allows market-cap preview when at least one company qualifies and exposes included / total', () => {
+    expect(getCanvasNodeEditorState(root)).toMatchObject({ canUseMarketCap: true, marketCapIncludedCount: 1, marketCapTotalCount: 2 });
   });
 });
 
@@ -112,6 +116,7 @@ describe('IndustryCanvasNodeEditor markup', () => {
     expect(html).toMatch(/添加同级[\s\S]*disabled|disabled[^>]*>[\s\S]*添加同级/);
     expect(html).toMatch(/删除当前[\s\S]*disabled|disabled[^>]*>[\s\S]*删除当前/);
     expect(html).toMatch(/市值加权/);
+    expect(html).toContain('纳入计算 1 / 分支公司 2');
   });
 
   it('disables preview and market-cap weighting without valid companies', () => {

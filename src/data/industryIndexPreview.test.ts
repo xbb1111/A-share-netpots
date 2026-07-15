@@ -61,6 +61,20 @@ describe('industry index preview', () => {
     ]);
   });
 
+  it('keeps all valid-code stocks for equal weight but only positive finite caps for market-cap weight', () => {
+    const weighted: CanvasNode = { id: 'weighted', name: '权重', children: [], stocks: [
+      { code: '000001', name: '有效', change: 1, marketCap: 100, pe: 10 },
+      { code: '000002', name: '缺失', change: 2, marketCap: null, pe: 11 },
+      { code: '000003', name: '零值', change: 3, marketCap: 0, pe: 12 },
+      { code: '000004', name: '负值', change: 4, marketCap: -1, pe: 13 },
+    ] };
+    const equal = buildIndustryIndexPreview(weighted, 'equal', ['权重'], () => 'equal');
+    const marketCap = buildIndustryIndexPreview(weighted, 'marketCap', ['权重'], () => 'cap');
+    expect(equal.index.components.map((item) => item.code)).toEqual(['000001', '000002', '000003', '000004']);
+    expect(marketCap.index.components.map((item) => item.code)).toEqual(['000001']);
+    expect(marketCap.totalCompanyCount).toBe(4);
+  });
+
   it('stores previews by id without touching custom-index local storage', () => {
     const session = fakeStorage();
     const local = fakeStorage();
@@ -121,6 +135,14 @@ describe('industry index preview', () => {
     expect(loadIndustryIndexPreview('default-session')).toEqual(preview);
     expect(sessionStorage.getItem('industry-index-preview:default-session')).not.toBeNull();
     expect(localStorage.values.size).toBe(0);
+  });
+
+  it('contains storage write and removal exceptions and reports save failure', () => {
+    const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('full'); }, removeItem: () => { throw new Error('blocked'); } };
+    const preview = buildIndustryIndexPreview(branch, 'equal', ['新能源'], () => 'broken');
+    expect(saveIndustryIndexPreview(preview, broken)).toBe(false);
+    expect(loadIndustryIndexPreview('broken', broken)).toBeNull();
+    expect(() => consumeIndustryIndexPreview('broken', broken)).not.toThrow();
   });
 
   it('encodes preview ids in the toolbox hash', () => {

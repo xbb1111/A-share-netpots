@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { fetchCustomIndexData } from './customIndexService';
+import { describe, expect, it, vi } from 'vitest';
+import { fetchCustomIndexData, fetchSecurityMetrics } from './customIndexService';
 
 describe('custom index market data service', () => {
+  it('hydrates quote metrics for a search-added stock', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ data: { f43: 1234, f162: 1890, f116: 4560000000, f170: -275 } }) }));
+    await expect(fetchSecurityMetrics('600000', fetcher)).resolves.toEqual({ price: 12.34, pe: 18.9, marketCap: 4560000000, change: -2.75 });
+  });
   it('loads histories and market caps for each component', async () => {
     const urls: string[] = [];
     const fetcher = async (input: string) => {

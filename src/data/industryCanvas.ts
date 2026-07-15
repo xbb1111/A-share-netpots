@@ -41,7 +41,8 @@ export function collectBranchStocks(node: CanvasNode): CanvasStock[] {
 export function getBranchMetrics(node: CanvasNode): BranchMetrics {
   const stocks = collectBranchStocks(node);
   const pe = stocks.map((stock) => stock.pe).filter((value): value is number => typeof value === 'number' && value > 0 && Number.isFinite(value));
-  return { companyCount: stocks.length, averageChange: average(stocks.map((stock) => stock.change)), averageMarketCap: average(stocks.map((stock) => stock.marketCap)), averagePe: average(pe), peCompanyCount: pe.length };
+  const marketCaps = stocks.map((stock) => stock.marketCap).filter((value): value is number => typeof value === 'number' && value > 0 && Number.isFinite(value));
+  return { companyCount: stocks.length, averageChange: average(stocks.map((stock) => stock.change)), averageMarketCap: average(marketCaps), averagePe: average(pe), peCompanyCount: pe.length };
 }
 
 function findNodePath(root: CanvasNode, id: string): CanvasNode[] | undefined {

@@ -2406,7 +2406,7 @@ function ToolboxPage() {
 
 function renderPage(page: PageKey, data: DashboardData) {
   if (page === 'industries') {
-    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onPreviewIndex={(request) => { const preview = buildIndustryIndexPreview(request.node, request.method, request.sourcePath); saveIndustryIndexPreview(preview); window.location.hash = toIndustryIndexPreviewHash(preview.index.id); }} />;
+    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onPreviewIndex={(request) => { const preview = buildIndustryIndexPreview(request.node, request.method, request.sourcePath); if (saveIndustryIndexPreview(preview)) window.location.hash = toIndustryIndexPreviewHash(preview.index.id); else window.alert('无法保存临时预览，请检查浏览器存储权限后重试。'); }} />;
   }
 
   if (page === 'watchlist') {
