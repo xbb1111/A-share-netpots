@@ -11,6 +11,7 @@ import {
   parseCanvasSharePayload,
   findCanvasNode,
   updateCanvasNodeDescription,
+  updateCanvasStock,
   addCanvasSibling,
   removeStockFromCanvasNode,
   hasCanvasNodeId,
@@ -72,6 +73,12 @@ describe('industry canvas model', () => {
       { code: '000003', name: '丙', change: 2, marketCap: -50, pe: null },
     ], children: [] };
     expect(getBranchMetrics(node)).toMatchObject({ companyCount: 3, averageMarketCap: 100, averagePe: 10 });
+  });
+
+  it('hydrates an existing stock without adding a duplicate', () => {
+    const hydrated = updateCanvasStock(canvas, 'root', { code: '000001', name: '平安银行', change: 2, marketCap: 200, pe: 12 });
+    expect(hydrated.root.stocks).toHaveLength(1);
+    expect(hydrated.root.stocks[0]).toMatchObject({ change: 2, marketCap: 200, pe: 12 });
   });
 
   it('finds deeply nested nodes without changing the tree', () => {

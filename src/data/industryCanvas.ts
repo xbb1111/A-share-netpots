@@ -159,6 +159,17 @@ export function addStockToCanvasNode(canvas: IndustryCanvas, id: string, stock: 
   return touch(canvas, updateNode(canvas.root, id, (node) => node.stocks.some((item) => normalizeStockCode(item.code) === code) ? node : { ...node, stocks: [...node.stocks, { ...stock, code }] }));
 }
 
+export function updateCanvasStock(canvas: IndustryCanvas, id: string, stock: CanvasStock): IndustryCanvas {
+  const code = normalizeStockCode(stock.code);
+  return touch(canvas, updateNode(canvas.root, id, (node) => {
+    const index = node.stocks.findIndex((item) => normalizeStockCode(item.code) === code);
+    if (index < 0) return node;
+    const stocks = [...node.stocks];
+    stocks[index] = { ...stocks[index], ...stock, code };
+    return { ...node, stocks };
+  }));
+}
+
 export function isIndustryCanvas(value: unknown): value is IndustryCanvas {
   if (!value || typeof value !== 'object' || (value as IndustryCanvas).version !== 1 || typeof (value as IndustryCanvas).id !== 'string' || typeof (value as IndustryCanvas).name !== 'string') return false;
   const root = (value as IndustryCanvas).root as unknown;

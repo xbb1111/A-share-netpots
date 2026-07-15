@@ -1,3 +1,5 @@
+import { buildFinancialApiUrl } from './financialReportService';
+
 export type KlinePeriod = '15m' | '30m' | '60m' | 'daily' | 'weekly';
 
 export type PriceBar = {
@@ -212,17 +214,10 @@ export async function fetchKlineData({
   }
 
   const normalizedCode = code.trim();
-  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
-  url.searchParams.set('secid', getSecid(normalizedCode));
-  url.searchParams.set('klt', periodConfig.klt);
-  url.searchParams.set('fqt', '1');
-  url.searchParams.set('lmt', String(limit ?? periodConfig.limit));
-  url.searchParams.set('end', '20500101');
-  url.searchParams.set('iscca', '1');
-  url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
-  url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
+  const params = new URLSearchParams({ code: normalizedCode, klt: periodConfig.klt, limit: String(limit ?? periodConfig.limit) });
+  const url = `${buildFinancialApiUrl('/api/market-kline')}?${params.toString()}`;
 
-  const response = await fetcher(url.toString());
+  const response = await fetcher(url);
 
   if (!response.ok) {
     throw new Error('K线数据请求失败');

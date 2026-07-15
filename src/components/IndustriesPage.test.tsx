@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IndustryBoard, IndustryCompany } from '../data/types';
 import { INDUSTRY_CHAINS } from '../data/industryTaxonomy';
-import { createIndustryPreviewRequest, filterIndustryItems, findChainRouteForBoard, getCanvasPreviewSourcePath, getIndustryCloudSpan, getIndustryPreviewAvailability, makeIndustryIndexNode, sortIndustryCompanies } from './IndustriesPage';
+import { createIndustryPreviewRequest, filterIndustryItems, findChainRouteForBoard, getCanvasPreviewSourcePath, getIndustryCloudSpan, getIndustryPreviewAvailability, makeIndustryIndexNode, shouldSyncIndustryRoute, sortIndustryCompanies } from './IndustriesPage';
 
 const boards: IndustryBoard[] = [
   { code: 'BK1033', name: '电池', level: 1, change: 2, heat: 88, capitalFlow: 12, valuation: '强势', momentum: '上涨 2.00%', trend: 'up' },
@@ -13,6 +13,10 @@ const companies: IndustryCompany[] = [
 ];
 
 describe('IndustriesPage helpers', () => {
+  it('does not let a stale industry effect overwrite a toolbox navigation', () => {
+    expect(shouldSyncIndustryRoute('#toolbox?tool=index&preview=test')).toBe(false);
+    expect(shouldSyncIndustryRoute('#industries?industryView=market')).toBe(true);
+  });
   it('builds a previewable industry index from loaded constituents', () => {
     const node = makeIndustryIndexNode(boards[0], companies);
     expect(node.name).toBe('电池');

@@ -34,17 +34,43 @@ function toneFor(change: number): IndustryMarketTone { return change > 0 ? 'up' 
 
 type PackedPoint = { x: number; y: number };
 
-function packRows(radii: number[], width: number) {
-  const padding = 7; const gap = 2; const points: PackedPoint[] = [];
-  let x = padding; let rowTop = 0; let rowHeight = 0; let candidateChecks = 0;
-  for (const radius of radii) {
-    const diameter = radius * 2;
-    candidateChecks += 1;
-    if (x > padding && x + diameter > width - padding) { rowTop += rowHeight + gap; x = padding; rowHeight = 0; }
-    points.push({ x: x + radius, y: rowTop + radius });
-    x += diameter + gap; rowHeight = Math.max(rowHeight, diameter);
-  }
-  return { points, height: rowTop + rowHeight, candidateChecks };
+function packCluster(radii: number[]) {
+  const gap = 2; const maxRadius = Math.max(...radii, 1); const cellSize = maxRadius * 2 + gap;
+  const points: PackedPoint[] = []; const grid = new Map<string, number[]>(); let candidateChecks = 0;
+  const key = (x: number, y: number) => `${x}:${y}`;
+  const addToGrid = (point: PackedPoint, index: number) => {
+    const gx = Math.floor(point.x / cellSize); const gy = Math.floor(point.y / cellSize); const id = key(gx, gy);
+    const bucket = grid.get(id) ?? []; bucket.push(index); grid.set(id, bucket);
+  };
+  const fits = (point: PackedPoint, radius: number) => {
+    const gx = Math.floor(point.x / cellSize); const gy = Math.floor(point.y / cellSize);
+    for (let x = gx - 1; x <= gx + 1; x += 1) for (let y = gy - 1; y <= gy + 1; y += 1) {
+      for (const otherIndex of grid.get(key(x, y)) ?? []) {
+        candidateChecks += 1;
+        const other = points[otherIndex];
+        if (Math.hypot(point.x - other.x, point.y - other.y) < radius + radii[otherIndex] + gap) return false;
+      }
+    }
+    return true;
+  };
+  radii.forEach((radius, index) => {
+    if (index === 0) { points.push({ x: 0, y: 0 }); addToGrid(points[0], 0); return; }
+    let point: PackedPoint | null = null;
+    const startStep = Math.max(1, index * 2);
+    for (let step = startStep; step <= startStep + 8000; step += 1) {
+      const angle = step * 2.399963229728653 + index * .173;
+      const distance = Math.max(4, maxRadius * .34) * Math.sqrt(step);
+      const candidate = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+      if (fits(candidate, radius)) { point = candidate; break; }
+    }
+    if (!point) point = { x: (Math.max(...points.map((item, placedIndex) => item.x + radii[placedIndex])) || 0) + radius + gap, y: 0 };
+    points.push(point); addToGrid(point, index);
+  });
+  const minX = Math.min(...points.map((point, index) => point.x - radii[index]));
+  const maxX = Math.max(...points.map((point, index) => point.x + radii[index]));
+  const minY = Math.min(...points.map((point, index) => point.y - radii[index]));
+  const maxY = Math.max(...points.map((point, index) => point.y + radii[index]));
+  return { points, width: maxX - minX, height: maxY - minY, minX, minY, candidateChecks };
 }
 
 export function buildIndustryMarketMapWithStats<T extends MarketBoard>(boards: T[], metric: IndustryMarketMetric, width: number, height: number): { map: IndustryMarketMap; candidateChecks: number } {
@@ -63,35 +89,26 @@ export function buildIndustryMarketMapWithStats<T extends MarketBoard>(boards: T
     bucket.boards.push(board); buckets.set(group.id, bucket);
   }
   const entries = [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const columns = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(entries.length * 1.35))));
-  const rows = Math.ceil(entries.length / columns); const gap = 12; const outer = 12;
-  const groupWidth = (bounds.width - outer * 2 - gap * (columns - 1)) / columns;
   const groups: IndustryMarketGroup[] = []; const items: IndustryMarketItem[] = [];
   const allValues = boards.map((board) => metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change));
   const maxValue = Math.max(...allValues, 1);
   const metricValue = (board: MarketBoard) => metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change);
   const featured = new Set([...boards].sort((a, b) => metricValue(b) - metricValue(a) || a.code.localeCompare(b.code)).slice(0, 3).map((b) => b.code));
-  const radiusFor = (board: MarketBoard) => 20 + 16 * Math.sqrt((metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change)) / maxValue);
-  const plans = entries.map(([, bucket]) => packRows(bucket.boards.map(radiusFor), groupWidth));
-  const desiredHeights = plans.map((plan) => Math.max(180, 40 + plan.height + 8));
-  const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(...desiredHeights.slice(row * columns, (row + 1) * columns)));
-  const contentHeight = outer * 2 + gap * (rows - 1) + rowHeights.reduce((sum, value) => sum + value, 0);
-  bounds.height = Math.max(bounds.height, Math.ceil(contentHeight));
-  let candidateChecks = 0;
-  entries.forEach(([id, bucket], groupIndex) => {
-    const column = groupIndex % columns; const row = Math.floor(groupIndex / columns);
-    const groupY = outer + rowHeights.slice(0, row).reduce((sum, value) => sum + value + gap, 0);
-    const group = { id, name: bucket.name, x: outer + column * (groupWidth + gap), y: groupY, width: groupWidth, height: rowHeights[row] };
-    groups.push(group);
-    const usableTop = group.y + 32;
-    const radii = bucket.boards.map(radiusFor);
-    const plan = plans[groupIndex]; candidateChecks += plan.candidateChecks;
-    bucket.boards.forEach((board, index) => {
-      const radius = radii[index]; const point = { x: group.x + plan.points[index].x, y: usableTop + plan.points[index].y };
-      items.push({ ...board, groupId: id, groupName: bucket.name, ...point, r: radius, tone: toneFor(board.change), featured: featured.has(board.code) });
-    });
+  const radiusFor = (board: MarketBoard) => 8 + 54 * Math.sqrt((metric === 'heat' ? Math.max(0, board.heat) : Math.abs(board.change)) / maxValue);
+  const ordered = [...boards].sort((a, b) => radiusFor(b) - radiusFor(a) || a.code.localeCompare(b.code));
+  const radii = ordered.map(radiusFor); const packed = packCluster(radii); const outer = 18;
+  const clusterScale = Math.min(1, (bounds.width - outer * 2) / packed.width);
+  const scaledWidth = packed.width * clusterScale; const scaledHeight = packed.height * clusterScale;
+  bounds.height = Math.max(bounds.height, Math.ceil(scaledHeight + outer * 2));
+  const offsetX = outer + Math.max(0, (bounds.width - scaledWidth - outer * 2) / 2);
+  const offsetY = outer + Math.max(0, (bounds.height - scaledHeight - outer * 2) / 2);
+  const groupNames = new Map(entries.map(([id, bucket]) => [id, bucket.name]));
+  entries.forEach(([id, bucket]) => groups.push({ id, name: bucket.name, x: 0, y: 0, width: bounds.width, height: bounds.height }));
+  ordered.forEach((board, index) => {
+    const group = groupFor(board); const point = packed.points[index];
+    items.push({ ...board, groupId: group.id, groupName: groupNames.get(group.id) ?? group.name, x: (point.x - packed.minX) * clusterScale + offsetX, y: (point.y - packed.minY) * clusterScale + offsetY, r: radii[index] * clusterScale, tone: toneFor(board.change), featured: featured.has(board.code) });
   });
-  return { map: { groups, items, bounds }, candidateChecks };
+  return { map: { groups, items, bounds }, candidateChecks: packed.candidateChecks };
 }
 
 export function buildIndustryMarketMap<T extends MarketBoard>(boards: T[], metric: IndustryMarketMetric, width: number, height: number): IndustryMarketMap {

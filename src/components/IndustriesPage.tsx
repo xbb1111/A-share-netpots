@@ -123,7 +123,9 @@ function readRouteState() {
   };
 }
 
-function writeRouteState(view: IndustryView, boardCode: string | null, chainId: string, nodeId: string | null) {
+export const shouldSyncIndustryRoute = (hash: string) => hash.replace(/^#/, '').split('?')[0] === 'industries';
+export function writeRouteState(view: IndustryView, boardCode: string | null, chainId: string, nodeId: string | null) {
+  if (!shouldSyncIndustryRoute(window.location.hash)) return;
   const params = new URLSearchParams();
   params.set('industryView', view);
   if (boardCode) params.set('industry', boardCode);

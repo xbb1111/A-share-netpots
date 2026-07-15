@@ -1,5 +1,6 @@
-import { fetchKlineData, getSecid } from './priceDiscipline';
+import { fetchKlineData } from './priceDiscipline';
 import type { IndexBarPeriod, IndexComponent, PriceBar, PriceHistory } from './customIndex';
+import { buildFinancialApiUrl } from './financialReportService';
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
@@ -17,18 +18,18 @@ export type CustomIndexData = {
 export type SecurityMetrics = { price: number | null; pe: number | null; marketCap: number | null; change: number | null };
 
 export async function fetchSecurityMetrics(code: string, fetcher: Fetcher = fetch): Promise<SecurityMetrics> {
-  const url = new URL('https://push2.eastmoney.com/api/qt/stock/get');
-  url.searchParams.set('secid', getSecid(code));
-  url.searchParams.set('fields', 'f43,f162,f116,f170');
-  const response = await fetcher(url.toString());
-  if (!response.ok) return { price: null, pe: null, marketCap: null, change: null };
+  const url = `${buildFinancialApiUrl('/api/security-metrics')}?code=${encodeURIComponent(code.trim())}`;
+  const response = await fetcher(url);
+  if (!response.ok) throw new Error('行情指标请求失败');
   const payload = (await response.json()) as { data?: { f43?: number; f162?: number; f116?: number; f170?: number } };
-  return {
+  const metrics = {
     price: typeof payload.data?.f43 === 'number' && payload.data.f43 > 0 ? payload.data.f43 / 100 : null,
     pe: typeof payload.data?.f162 === 'number' ? payload.data.f162 / 100 : null,
     marketCap: typeof payload.data?.f116 === 'number' && payload.data.f116 > 0 ? payload.data.f116 : null,
     change: typeof payload.data?.f170 === 'number' ? payload.data.f170 / 100 : null,
   };
+  if (Object.values(metrics).every((value) => value === null)) throw new Error('行情指标为空');
+  return metrics;
 }
 
 export async function fetchCustomIndexData(
@@ -44,13 +45,16 @@ export async function fetchCustomIndexData(
   const currentPE: Record<string, number> = {};
   const diagnostics: Array<{ code: string; message: string }> = [];
 
-  await Promise.all(
-    components.map(async (component) => {
-      try {
-        const [kline, quote] = await Promise.all([
-          fetchKlineData({ code: component.code, period, limit: 2000, fetcher }),
-          fetchSecurityMetrics(component.code, fetcher),
-        ]);
+  let nextComponentIndex = 0;
+  const hydrateNextComponent = async () => {
+    while (nextComponentIndex < components.length) {
+      const component = components[nextComponentIndex]; nextComponentIndex += 1;
+      const [klineResult, quoteResult] = await Promise.allSettled([
+        fetchKlineData({ code: component.code, period, limit: 2000, fetcher }),
+        fetchSecurityMetrics(component.code, fetcher),
+      ]);
+      if (klineResult.status === 'fulfilled') {
+        const kline = klineResult.value;
         histories[component.code] = kline.bars.map((bar) => ({
           date: bar.time,
           open: bar.open,
@@ -61,16 +65,20 @@ export async function fetchCustomIndexData(
         if (histories[component.code].length === 0) {
           diagnostics.push({ code: component.code, message: '历史行情不足' });
         }
+      } else {
+        histories[component.code] = [];
+        diagnostics.push({ code: component.code, message: '历史行情请求失败' });
+      }
+      if (quoteResult.status === 'fulfilled') {
+        const quote = quoteResult.value;
         if (quote.price !== null) currentPrices[component.code] = quote.price;
         if (quote.pe !== null) currentPE[component.code] = quote.pe;
         if (quote.marketCap !== null) marketCaps[component.code] = quote.marketCap;
         else diagnostics.push({ code: component.code, message: '市值数据不足' });
-      } catch {
-        histories[component.code] = [];
-        diagnostics.push({ code: component.code, message: '历史行情请求失败' });
-      }
-    }),
-  );
+      } else diagnostics.push({ code: component.code, message: '市值数据不足' });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, components.length) }, () => hydrateNextComponent()));
 
   if (benchmarkCode) {
     try {

@@ -1973,7 +1973,11 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
         }
       }
       const data = await fetchCustomIndexData(index.components, fetch, benchmarkCode, index.period ?? 'daily');
-      if (calculationGuardRef.current.isLatest(request)) setResult(calculateCustomIndexResult({ ...index, benchmarkCode }, data));
+      const availableCodes = new Set(Object.entries(data.histories).filter(([, bars]) => bars.length > 0).map(([code]) => code));
+      const availableComponents = index.components.filter((component) => availableCodes.has(component.code));
+      if (availableComponents.length === 0) throw new Error('缺少成分股历史行情');
+      const calculableIndex = isPreviewActive ? { ...index, components: availableComponents } : index;
+      if (calculationGuardRef.current.isLatest(request)) setResult(calculateCustomIndexResult({ ...calculableIndex, benchmarkCode }, data));
     } catch (caught) {
       if (calculationGuardRef.current.isLatest(request)) {
         setResult(null);
