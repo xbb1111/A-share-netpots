@@ -89,6 +89,14 @@ export async function handleFinancialReportRequest(request) {
       return jsonResponse(await getMarketListPage('stocks', 1));
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/market-kline') {
+      return jsonResponse(await getMarketKline(url.searchParams));
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/security-metrics') {
+      return jsonResponse(await getSecurityMetrics((url.searchParams.get('code') ?? '').trim()));
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/filings/analyze') {
       const body = await readRequestJson(request);
       const code = String(body.code ?? '').trim();
@@ -101,6 +109,32 @@ export async function handleFinancialReportRequest(request) {
   } catch (error) {
     return jsonResponse({ message: error instanceof Error ? error.message : 'Unknown API error' }, 500);
   }
+}
+
+function getMarketSecid(code) {
+  if (!/^\d{6}$/.test(code)) throw new Error('Invalid security code');
+  return /^000(016|300|905|852)$/.test(code) || /^[659]/.test(code) ? `1.${code}` : `0.${code}`;
+}
+
+async function getMarketKline(params) {
+  const code = (params.get('code') ?? '').trim();
+  const klt = params.get('klt') ?? '101';
+  if (!['15', '30', '60', '101', '102'].includes(klt)) throw new Error('Invalid kline period');
+  const limit = clamp(Math.round(Number(params.get('limit') ?? 180)), 1, 2000);
+  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
+  url.searchParams.set('secid', getMarketSecid(code));
+  url.searchParams.set('klt', klt); url.searchParams.set('fqt', '1'); url.searchParams.set('lmt', String(limit));
+  url.searchParams.set('end', '20500101'); url.searchParams.set('iscca', '1');
+  url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
+  url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
+  try { return await fetchJson(url); } catch { return fetchJson(url); }
+}
+
+async function getSecurityMetrics(code) {
+  const url = new URL('https://push2.eastmoney.com/api/qt/stock/get');
+  url.searchParams.set('secid', getMarketSecid(code));
+  url.searchParams.set('fields', 'f43,f162,f116,f170');
+  return fetchJson(url);
 }
 
 async function getIndustryCompanies(boardCode) {

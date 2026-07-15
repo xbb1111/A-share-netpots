@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { fetchCustomIndexData } from './customIndexService';
+import { describe, expect, it, vi } from 'vitest';
+import { fetchCustomIndexData, fetchSecurityMetrics } from './customIndexService';
 
 describe('custom index market data service', () => {
+  it('hydrates quote metrics for a search-added stock', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ data: { f43: 1234, f162: 1890, f116: 4560000000, f170: -275 } }) }));
+    await expect(fetchSecurityMetrics('600000', fetcher)).resolves.toEqual({ price: 12.34, pe: 18.9, marketCap: 4560000000, change: -2.75 });
+  });
+  it('rejects failed or empty metric hydration so the editor can offer retry', async () => {
+    await expect(fetchSecurityMetrics('600000', async () => ({ ok: false, json: async () => ({}) }))).rejects.toThrow();
+    await expect(fetchSecurityMetrics('600000', async () => ({ ok: true, json: async () => ({ data: {} }) }))).rejects.toThrow();
+  });
   it('loads histories and market caps for each component', async () => {
     const urls: string[] = [];
     const fetcher = async (input: string) => {
       urls.push(input);
-      if (input.includes('stock/kline/get')) {
+      if (input.includes('/api/market-kline')) {
         return { ok: true, json: async () => ({ data: { code: '600000', name: '甲', klines: ['2026-01-02,10,10,10,10,1,1,0'] } }) };
       }
       return { ok: true, json: async () => ({ data: { f43: 1234, f162: 1850, f116: 123456789 } }) };
@@ -24,7 +32,7 @@ describe('custom index market data service', () => {
   it('returns diagnostics when a component history is unavailable', async () => {
     const fetcher = async (input: string) => ({
       ok: true,
-      json: async () => (input.includes('stock/kline/get') ? { data: { code: '000001', name: '乙', klines: [] } } : { data: {} }),
+      json: async () => (input.includes('/api/market-kline') ? { data: { code: '000001', name: '乙', klines: [] } } : { data: {} }),
     });
 
     const result = await fetchCustomIndexData([{ code: '000001', name: '乙', industry: '银行' }], fetcher);
@@ -38,7 +46,7 @@ describe('custom index market data service', () => {
   it('loads an optional benchmark history', async () => {
     const fetcher = async (input: string) => ({
       ok: true,
-      json: async () => (input.includes('stock/kline/get') ? { data: { code: '000300', name: '沪深300', klines: ['2026-01-02,10,10,10,10,1,1,0'] } } : { data: { f116: 1 } }),
+      json: async () => (input.includes('/api/market-kline') ? { data: { code: '000300', name: '沪深300', klines: ['2026-01-02,10,10,10,10,1,1,0'] } } : { data: { f116: 1 } }),
     });
 
     const result = await fetchCustomIndexData([], fetcher, '000300');
@@ -50,7 +58,7 @@ describe('custom index market data service', () => {
     const urls: string[] = [];
     const fetcher = async (input: string) => {
       urls.push(input);
-      return { ok: true, json: async () => (input.includes('stock/kline/get') ? { data: { code: '600000', name: '甲', klines: ['2026-07-10 10:30,10,11,12,9,1,1,0'] } } : { data: { f116: 1 } }) };
+      return { ok: true, json: async () => (input.includes('/api/market-kline') ? { data: { code: '600000', name: '甲', klines: ['2026-07-10 10:30,10,11,12,9,1,1,0'] } } : { data: { f116: 1 } }) };
     };
 
     const result = await fetchCustomIndexData([{ code: '600000', name: '甲', industry: '金融' }], fetcher, undefined, '30m');

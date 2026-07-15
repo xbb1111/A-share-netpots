@@ -60,7 +60,8 @@ describe('priceDiscipline', () => {
 
     const result = await fetchKlineData({ code: '300750', period: 'daily', fetcher });
 
-    expect(requestedUrls[0]).toContain('secid=0.300750');
+    expect(requestedUrls[0]).toContain('/api/market-kline?');
+    expect(requestedUrls[0]).toContain('code=300750');
     expect(requestedUrls[0]).toContain('klt=101');
     expect(result).toMatchObject({
       code: '300750',

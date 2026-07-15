@@ -46,7 +46,6 @@ import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
-import { collectBranchStocks, type CanvasNode } from './data/industryCanvas';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -80,10 +79,14 @@ import {
   createCustomIndex,
   duplicateCustomIndex,
   loadCustomIndices,
+  promoteCustomIndexPreview,
   removeCustomIndex,
-  saveCustomIndices,
+  trySaveCustomIndices,
   type StoredCustomIndex,
 } from './data/customIndexStorage';
+import { buildIndustryIndexPreview, loadIndustryIndexPreview, removeIndustryIndexPreview, saveIndustryIndexPreview, toIndustryIndexPreviewHash, type IndustryIndexPreview } from './data/industryIndexPreview';
+import { parseToolboxRoute, removePreviewFromToolboxHash } from './data/toolboxRoute';
+import { createLatestRequestGuard, resolveActiveCustomIndex } from './data/customIndexPreviewState';
 
 type PageKey = 'overview' | 'industries' | 'watchlist' | 'alerts' | 'toolbox';
 
@@ -1699,7 +1702,7 @@ function CustomIndexKlineChart({
   );
 }
 
-function CustomIndexToolPanel() {
+function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   const [indices, setIndices] = useState<StoredCustomIndex[]>(() => loadCustomIndices());
   const [selectedId, setSelectedId] = useState<string | null>(() => loadCustomIndices()[0]?.id ?? null);
   const [draft, setDraft] = useState(emptyCustomIndexDraft);
@@ -1713,6 +1716,10 @@ function CustomIndexToolPanel() {
   const [draggedComponentCode, setDraggedComponentCode] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<IndustryIndexPreview | null>(null);
+  const [previewLoadFailed, setPreviewLoadFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [result, setResult] = useState<CustomIndexResult | null>(null);
   const [activeMetric, setActiveMetric] = useState<'drawdown' | null>(null);
   const [isLoadingResult, setIsLoadingResult] = useState(false);
@@ -1727,13 +1734,59 @@ function CustomIndexToolPanel() {
   const indexChartCanvasRef = useRef<HTMLDivElement | null>(null);
   const indexChartDragRef = useRef<{ startX: number; startOffset: number } | null>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const calculationGuardRef = useRef(createLatestRequestGuard());
 
-  const selected = indices.find((index) => index.id === selectedId) ?? null;
+  const selected = resolveActiveCustomIndex(indices, selectedId, preview);
+  const isPreviewActive = preview !== null;
   const drawdownWindow = activeMetric === 'drawdown' && result ? findMaxDrawdownWindow(result.series) : null;
 
   function persist(next: StoredCustomIndex[]) {
+    if (!trySaveCustomIndices(next)) {
+      setPersistenceError('指数保存失败，请检查浏览器存储空间，并重新执行刚才的保存操作');
+      return false;
+    }
     setIndices(next);
-    saveCustomIndices(next);
+    setPersistenceError(null);
+    return true;
+  }
+
+  function loadRequestedPreview() {
+    if (!previewId) { setPreview(null); setPreviewLoadFailed(false); return; }
+    const requested = loadIndustryIndexPreview(previewId);
+    if (!requested) { setPreview(null); setPreviewLoadFailed(true); setError('未找到请求的行业指数预览'); return; }
+    setPreview(requested);
+    setSelectedId(requested.index.id);
+    setPreviewLoadFailed(false);
+    setError(null);
+  }
+
+  useEffect(() => {
+    loadRequestedPreview();
+  }, [previewId]);
+
+  function savePreview() {
+    if (!preview) return;
+    const next = promoteCustomIndexPreview(indices, preview);
+    if (!persist(next)) return;
+    exitPreview();
+    setSelectedId(preview.index.id);
+  }
+
+  function exitPreview(nextHash = removePreviewFromToolboxHash(window.location.hash)) {
+    if (preview) removeIndustryIndexPreview(preview.index.id);
+    setPreview(null);
+    window.location.hash = nextHash;
+  }
+
+  function updateSelectedIndex(update: (index: StoredCustomIndex) => StoredCustomIndex) {
+    if (!selected) return false;
+    if (preview) {
+      const next = { ...preview, index: update(preview.index) };
+      setPreview(next);
+      saveIndustryIndexPreview(next);
+      return true;
+    }
+    return persist(indices.map((index) => index.id === selected.id ? update(index) : index));
   }
 
   function openEditor(index?: StoredCustomIndex) {
@@ -1752,7 +1805,7 @@ function CustomIndexToolPanel() {
 
   useEffect(() => {
     setBenchmarkInput(selected?.benchmarkCode ?? '');
-  }, [selectedId]);
+  }, [selected?.benchmarkCode, selectedId]);
 
   useEffect(() => {
     const query = benchmarkInput.trim();
@@ -1771,14 +1824,15 @@ function CustomIndexToolPanel() {
   function updateSelectedBenchmark(code: string) {
     if (!selected || !/^\d{6}$/.test(code.trim())) return;
     const benchmarkCode = code.trim();
-    setBenchmarkInput(benchmarkCode);
-    setBenchmarkSuggestions([]);
-    persist(indices.map((index) => index.id === selected.id ? { ...index, benchmarkCode, updatedAt: new Date().toISOString() } : index));
+    if (updateSelectedIndex((index) => ({ ...index, benchmarkCode, updatedAt: new Date().toISOString() }))) {
+      setBenchmarkInput(benchmarkCode);
+      setBenchmarkSuggestions([]);
+    } else setBenchmarkInput(selected.benchmarkCode ?? '');
   }
 
   function updateSelectedBenchmarkVisibility(showBenchmark: boolean) {
     if (!selected) return;
-    persist(indices.map((index) => index.id === selected.id ? { ...index, showBenchmark, updatedAt: new Date().toISOString() } : index));
+    updateSelectedIndex((index) => ({ ...index, showBenchmark, updatedAt: new Date().toISOString() }));
   }
 
   function removeComponent(code: string) {
@@ -1891,7 +1945,7 @@ function CustomIndexToolPanel() {
         ? ({ ...draft, id: editingId, createdAt: selected?.createdAt ?? now, updatedAt: now } as StoredCustomIndex)
         : createCustomIndex(draft);
       const next = editingId ? indices.map((index) => (index.id === editingId ? nextIndex : index)) : [...indices, nextIndex];
-      persist(next);
+      if (!persist(next)) return;
       setSelectedId(nextIndex.id);
       setIsEditorOpen(false);
       setError(null);
@@ -1901,7 +1955,9 @@ function CustomIndexToolPanel() {
   }
 
   async function calculateSelected(index: StoredCustomIndex) {
+    const request = calculationGuardRef.current.begin();
     setIsLoadingResult(true);
+    setResult(null);
     setError(null);
     try {
       let benchmarkCode = index.benchmarkCode;
@@ -1917,19 +1973,25 @@ function CustomIndexToolPanel() {
         }
       }
       const data = await fetchCustomIndexData(index.components, fetch, benchmarkCode, index.period ?? 'daily');
-      setResult(calculateCustomIndexResult({ ...index, benchmarkCode }, data));
+      const availableCodes = new Set(Object.entries(data.histories).filter(([, bars]) => bars.length > 0).map(([code]) => code));
+      const availableComponents = index.components.filter((component) => availableCodes.has(component.code));
+      if (availableComponents.length === 0) throw new Error('缺少成分股历史行情');
+      const calculableIndex = isPreviewActive ? { ...index, components: availableComponents } : index;
+      if (calculationGuardRef.current.isLatest(request)) setResult(calculateCustomIndexResult({ ...calculableIndex, benchmarkCode }, data));
     } catch (caught) {
-      setResult(null);
-      setError(caught instanceof Error ? caught.message : '指数计算失败');
+      if (calculationGuardRef.current.isLatest(request)) {
+        setResult(null);
+        setError(caught instanceof Error ? caught.message : '指数计算失败');
+      }
     } finally {
-      setIsLoadingResult(false);
+      if (calculationGuardRef.current.isLatest(request)) setIsLoadingResult(false);
     }
   }
 
   useEffect(() => {
     if (selected) void calculateSelected(selected);
-    else setResult(null);
-  }, [selectedId, indices]);
+    else { calculationGuardRef.current.begin(); setResult(null); setIsLoadingResult(false); }
+  }, [selected, retryNonce]);
 
   useEffect(() => {
     if (!editingId || editingId !== selectedId || !selected || !result?.marketData) return;
@@ -1944,21 +2006,18 @@ function CustomIndexToolPanel() {
   function duplicateSelected() {
     if (!selected) return;
     const copy = duplicateCustomIndex(selected);
-    persist([...indices, copy]);
-    setSelectedId(copy.id);
+    if (persist([...indices, copy])) setSelectedId(copy.id);
   }
 
   function deleteSelected() {
     if (!selected) return;
     const next = removeCustomIndex(indices, selected.id);
-    persist(next);
-    setSelectedId(next[0]?.id ?? null);
+    if (persist(next)) setSelectedId(next[0]?.id ?? null);
   }
 
   function updateSelectedPeriod(period: IndexBarPeriod) {
     if (!selected) return;
-    const next = indices.map((index) => index.id === selected.id ? { ...index, period, updatedAt: new Date().toISOString() } : index);
-    persist(next);
+    updateSelectedIndex((index) => ({ ...index, period, updatedAt: new Date().toISOString() }));
   }
 
   const indexChartRows = useMemo(
@@ -2084,18 +2143,20 @@ function CustomIndexToolPanel() {
         </button>
       </div>
 
-      {error ? <div className="custom-index-error">{error}</div> : null}
+      {persistenceError ? <div className="custom-index-error">{persistenceError}</div> : null}
+      {error ? <div className="custom-index-error">{error} <button type="button" onClick={() => previewLoadFailed ? loadRequestedPreview() : setRetryNonce((value) => value + 1)}>重试</button></div> : null}
 
       <div className="custom-index-layout">
         <aside className="custom-index-list">
           <div className="custom-index-list__heading"><span>我的指数</span><b>{indices.length}</b></div>
+          {preview ? <button type="button" className="custom-index-list__item custom-index-list__item--active" onClick={() => setSelectedId(preview.index.id)}><strong>{preview.index.name}</strong><span>临时预览 · {preview.index.components.length} 只成分</span></button> : null}
           {indices.length === 0 ? <div className="custom-index-empty">还没有指数，先创建一个行业篮子。</div> : null}
           {indices.map((index) => (
             <button
               type="button"
               className={`custom-index-list__item${selectedId === index.id ? ' custom-index-list__item--active' : ''}`}
               key={index.id}
-              onClick={() => setSelectedId(index.id)}
+              onClick={() => { exitPreview(); setSelectedId(index.id); }}
             >
               <strong>{index.name}</strong>
               <span>{index.components.length} 只成分 · {index.rebalanceFrequency === 'none' ? '不调仓' : index.rebalanceFrequency}</span>
@@ -2109,11 +2170,9 @@ function CustomIndexToolPanel() {
           ) : (
             <>
               <div className="custom-index-detail-head">
-                <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{selected.description || '暂无组合说明'}</p></div>
+                <div><span className="eyebrow">Simulation Index</span><h3>{selected.name}</h3><p>{preview?.index.id === selected.id ? `临时预览 · 来源：${preview.sourcePath.join(' / ')}` : selected.description || '暂无组合说明'}</p></div>
                 <div className="custom-index-actions">
-                  <button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button>
-                  <button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button>
-                  <button type="button" onClick={deleteSelected}>删除</button>
+                  {isPreviewActive ? <><button type="button" className="custom-index-primary" onClick={savePreview}>保存到我的指数</button><button type="button" onClick={() => exitPreview('industries?industryView=chain')}>返回行业研究</button></> : <><button type="button" onClick={() => openEditor(selected)}><Edit3 size={14} /> 编辑</button><button type="button" onClick={duplicateSelected}><Copy size={14} /> 复制</button><button type="button" onClick={deleteSelected}>删除</button></>}
                 </div>
               </div>
               {isLoadingResult ? <div className="custom-index-loading">正在获取历史行情并计算指数…</div> : null}
@@ -2225,10 +2284,21 @@ function ToolboxPage() {
   });
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
-  const initialTool = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tool');
-  const [isPriceToolOpen, setIsPriceToolOpen] = useState(initialTool === 'price');
+  const [route, setRoute] = useState(() => parseToolboxRoute(window.location.hash));
+  const [isPriceToolOpen, setIsPriceToolOpen] = useState(route.tool === 'price');
   const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
-  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(initialTool === 'index');
+  const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(route.tool === 'index');
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const next = parseToolboxRoute(window.location.hash);
+      setRoute(next);
+      if (next.tool === 'price') setIsPriceToolOpen(true);
+      if (next.tool === 'index') setIsCustomIndexToolOpen(true);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem('alpha-desk-tools', JSON.stringify(tools));
@@ -2333,14 +2403,14 @@ function ToolboxPage() {
 
       {isPriceToolOpen ? <PriceDisciplinePanel /> : null}
       {isFinancialReportToolOpen ? <FinancialReportPanel /> : null}
-      {isCustomIndexToolOpen ? <CustomIndexToolPanel /> : null}
+      {isCustomIndexToolOpen ? <CustomIndexToolPanel previewId={route.previewId} /> : null}
     </section>
   );
 }
 
 function renderPage(page: PageKey, data: DashboardData) {
   if (page === 'industries') {
-    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onOpenIndexTool={(node: CanvasNode, method) => { const components = collectBranchStocks(node).map((stock) => ({ code: stock.code, name: stock.name, industry: stock.industry ?? '产业链', marketCap: stock.marketCap ?? undefined, targetWeight: 0 })); const index = createCustomIndex({ name: `${node.name} 指数`, description: '由产业链画布临时预览确认后保存', tags: ['产业链'], components, weightMethod: method, rebalanceFrequency: 'monthly', baseValue: 100 }); saveCustomIndices([...loadCustomIndices(), index]); window.location.hash = 'toolbox?tool=index'; }} />;
+    return <IndustriesPage industries={data.industries} onOpenPriceTool={(code, name) => { window.location.hash = `toolbox?tool=price&code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`; }} onPreviewIndex={(request) => { const preview = buildIndustryIndexPreview(request.node, request.method, request.sourcePath); if (saveIndustryIndexPreview(preview)) window.location.hash = toIndustryIndexPreviewHash(preview.index.id); else window.alert('无法保存临时预览，请检查浏览器存储权限后重试。'); }} />;
   }
 
   if (page === 'watchlist') {
