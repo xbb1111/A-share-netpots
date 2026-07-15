@@ -24,10 +24,15 @@ export function getCanvasKeyboardAction(key: string, shiftKey: boolean, isFormCo
 }
 
 export const clampCanvasZoom = (value: number) => Math.max(.01, Math.min(1.5, Number.isFinite(value) ? value : 1));
+export function stepCanvasZoom(current: number, direction: 'in' | 'out') {
+  const safe = Number.isFinite(current) && current > 0 ? current : 1;
+  return direction === 'in' ? Math.min(1.5, safe * 1.25) : Math.max(Number.MIN_VALUE, safe * .8);
+}
 export function calculateFitTransform(viewportWidth: number, viewportHeight: number, layoutWidth: number, layoutHeight: number, padding = 24) {
   const availableWidth = Math.max(1, viewportWidth - padding * 2);
   const availableHeight = Math.max(1, viewportHeight - padding * 2);
-  const scale = Math.max(Number.EPSILON, Math.min(1.5, Math.min(availableWidth / Math.max(1, layoutWidth), availableHeight / Math.max(1, layoutHeight))));
+  const computedScale = Math.min(availableWidth / layoutWidth, availableHeight / layoutHeight);
+  const scale = Number.isFinite(computedScale) && computedScale > 0 ? Math.min(1.5, computedScale) : 1;
   return { scale, x: (viewportWidth - layoutWidth * scale) / 2, y: (viewportHeight - layoutHeight * scale) / 2 };
 }
 export type CanvasDragState = { pointerId: number; x: number; y: number; px: number; py: number };
@@ -79,7 +84,6 @@ export function IndustryCanvasMindMap({ canvas, selectedId, expandedId, onSelect
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
     focusFrame.current = requestAnimationFrame(() => { viewportRef.current?.querySelector<HTMLElement>(`[data-canvas-node="${CSS.escape(id)}"]`)?.focus(); focusFrame.current = null; });
   };
-  const changeZoom = (next: number) => setZoom(clampCanvasZoom(next));
   const finishDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     drag.current = endCanvasDrag(drag.current, event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
@@ -103,9 +107,9 @@ export function IndustryCanvasMindMap({ canvas, selectedId, expandedId, onSelect
 
   return <div className="industry-mind-map">
     <div className="industry-mind-map__controls">
-      <button type="button" aria-label="缩小" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button>
+      <button type="button" aria-label="缩小" onClick={() => setZoom((current) => stepCanvasZoom(current, 'out'))}><Minus size={14} /></button>
       <span>{Math.round(zoom * 100)}%</span>
-      <button type="button" aria-label="放大" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button>
+      <button type="button" aria-label="放大" onClick={() => setZoom((current) => stepCanvasZoom(current, 'in'))}><Plus size={14} /></button>
       <button type="button" onClick={() => { const element = viewportRef.current; if (!element) return; const fit = calculateFitTransform(element.clientWidth, element.clientHeight, layout.width, layout.height); setZoom(fit.scale); setPan({ x: fit.x, y: fit.y }); }}><Maximize2 size={14} />适应画布</button>
     </div>
     <div ref={viewportRef} data-canvas-pan-surface className="industry-mind-map__viewport"

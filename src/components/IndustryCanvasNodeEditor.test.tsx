@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CanvasNode, IndustryCanvas } from '../data/industryCanvas';
-import { buildCanvasNavigationIndex, calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldCollapseCanvasEditor, shouldStartCanvasPan } from './IndustryCanvasMindMap';
+import { buildCanvasNavigationIndex, calculateFitTransform, createCanvasDragState, endCanvasDrag, getCanvasKeyboardAction, getCanvasKeyboardTarget, IndustryCanvasMindMap, shouldCollapseCanvasEditor, shouldStartCanvasPan, stepCanvasZoom } from './IndustryCanvasMindMap';
 import { createLatestAsyncGuard, getCanvasNodeEditorState, IndustryCanvasNodeEditor, resolveCanvasWeightMethod } from './IndustryCanvasNodeEditor';
 
 const leaf: CanvasNode = { id: 'leaf', name: '铜箔', stocks: [{ code: ' 300750 ', name: '宁德时代', change: 2, marketCap: 100, pe: 20 }], children: [] };
@@ -53,6 +53,12 @@ describe('canvas pan and fit helpers', () => {
     const huge = calculateFitTransform(500, 400, 100000, 200000, 24);
     expect(100000 * huge.scale).toBeLessThanOrEqual(452);
     expect(200000 * huge.scale).toBeLessThanOrEqual(352);
+    const extreme = calculateFitTransform(500, 400, 1e20, 5e19, 24);
+    expect(1e20 * extreme.scale).toBeLessThanOrEqual(452);
+    expect(5e19 * extreme.scale).toBeLessThanOrEqual(352);
+    expect(stepCanvasZoom(extreme.scale, 'out')).toBeLessThan(extreme.scale);
+    expect(stepCanvasZoom(extreme.scale, 'in')).toBeGreaterThan(extreme.scale);
+    expect(stepCanvasZoom(extreme.scale, 'out')).toBeGreaterThan(0);
   });
 
   it('clears drag only for the active pointer', () => {
