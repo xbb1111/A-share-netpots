@@ -1690,6 +1690,9 @@ function CustomIndexToolPanel() {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [benchmarkSuggestions, setBenchmarkSuggestions] = useState<SecuritySuggestion[]>([]);
+  const [weightInputValues, setWeightInputValues] = useState<Record<string, string>>({});
+  const [componentSort, setComponentSort] = useState<'manual' | 'marketCap' | 'price' | 'pe' | 'weight'>('manual');
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CustomIndexResult | null>(null);
@@ -1724,11 +1727,56 @@ function CustomIndexToolPanel() {
       setEditingId(null);
       setDraft(emptyCustomIndexDraft());
     }
+    setBenchmarkSuggestions([]);
+    setWeightInputValues({});
     setIsEditorOpen(true);
   }
 
+  useEffect(() => {
+    const query = (draft.benchmarkCode ?? '').trim();
+    if (!isEditorOpen || !query || /^\d{6}$/.test(query)) {
+      setBenchmarkSuggestions([]);
+      return;
+    }
+
+    let isStale = false;
+    const timer = window.setTimeout(async () => {
+      const items = await searchSecuritySuggestions(query).catch(() => []);
+      if (!isStale) setBenchmarkSuggestions(items);
+    }, 250);
+
+    return () => {
+      isStale = true;
+      window.clearTimeout(timer);
+    };
+  }, [draft.benchmarkCode, isEditorOpen]);
+
   function removeComponent(code: string) {
     setDraft((current) => ({ ...current, components: current.components.filter((component) => component.code !== code) }));
+  }
+
+  function moveComponent(code: string, direction: -1 | 1) {
+    setDraft((current) => {
+      const index = current.components.findIndex((component) => component.code === code);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.components.length) return current;
+      const components = [...current.components];
+      [components[index], components[nextIndex]] = [components[nextIndex], components[index]];
+      return { ...current, components };
+    });
+    setComponentSort('manual');
+  }
+
+  function getDisplayedComponents() {
+    if (componentSort === 'manual') return draft.components;
+    const components = [...draft.components];
+    const value = (component: IndexComponent) => {
+      if (componentSort === 'marketCap') return result?.marketData.marketCaps[component.code] ?? -Infinity;
+      if (componentSort === 'price') return result?.marketData.currentPrices[component.code] ?? -Infinity;
+      if (componentSort === 'pe') return result?.marketData.currentPE[component.code] ?? -Infinity;
+      return getEditableWeight(component);
+    };
+    return components.sort((left, right) => value(right) - value(left));
   }
 
   function updateManualWeight(code: string, weight: number) {
@@ -1742,6 +1790,24 @@ function CustomIndexToolPanel() {
   function getEditableWeight(component: IndexComponent) {
     const currentWeight = result?.series.at(-1)?.weights[component.code];
     return Number(((currentWeight ?? ((component.targetWeight ?? 0) / 100)) * 100).toFixed(2));
+  }
+
+  function getEditableWeightText(component: IndexComponent) {
+    return weightInputValues[component.code] ?? String(getEditableWeight(component));
+  }
+
+  function updateWeightInput(component: IndexComponent, value: string) {
+    setWeightInputValues((current) => ({ ...current, [component.code]: value }));
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) updateManualWeight(component.code, parsed);
+  }
+
+  function commitWeightInput(component: IndexComponent) {
+    const value = weightInputValues[component.code];
+    const parsed = Number(value);
+    if (!value || !Number.isFinite(parsed)) {
+      setWeightInputValues((current) => ({ ...current, [component.code]: String(getEditableWeight(component)) }));
+    }
   }
 
   async function searchStocks() {
@@ -2081,14 +2147,14 @@ function CustomIndexToolPanel() {
             <label>名称<input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
             <label>说明<input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="例如：AI 算力产业链" /></label>
             <label>基准日<div className="custom-index-date-input"><input ref={dateInputRef} type="date" min="2015-01-01" max={new Date().toISOString().slice(0, 10)} value={draft.baseDate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, baseDate: event.target.value }))} /><button type="button" onClick={() => { const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; input?.showPicker?.(); input?.focus(); }}>打开日历</button></div></label>
-            <label>对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" /></label>
+            <label className="custom-index-benchmark-field">对比基准代码或名称<input value={draft.benchmarkCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, benchmarkCode: event.target.value }))} placeholder="例如 000300 或 沪深300" />{benchmarkSuggestions.map((suggestion) => <button type="button" className="custom-index-suggestion custom-index-benchmark-suggestion" key={suggestion.code} onClick={() => { setDraft((current) => ({ ...current, benchmarkCode: suggestion.code })); setBenchmarkSuggestions([]); }}>{suggestion.name} {suggestion.code}</button>)}</label>
             <label className="custom-index-checkbox-label"><input type="checkbox" checked={draft.showBenchmark ?? true} onChange={(event) => setDraft((current) => ({ ...current, showBenchmark: event.target.checked }))} /><span>在图中显示基准</span></label>
             <label>行情周期<select value={draft.period ?? 'daily'} onChange={(event) => setDraft((current) => ({ ...current, period: event.target.value as IndexBarPeriod }))}>{KLINE_PERIODS.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}</select></label>
             <label>权重方式<select value={draft.weightMethod} onChange={(event) => setDraft((current) => ({ ...current, weightMethod: event.target.value as CustomIndexConfig['weightMethod'] }))}><option value="custom">自定义权重</option><option value="equal">等权</option><option value="marketCap">市值加权</option></select></label>
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>
-          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0).toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><span>对应市值</span><span>当前权重</span><span>操作</span></div>{draft.components.map((component) => <div className="custom-index-component" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><input aria-label={`${component.name}当前权重`} type="number" min="0" max="100" step="0.1" value={getEditableWeight(component)} onChange={(event) => updateManualWeight(component.code, Number(event.target.value))} /><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></div>)}</div>
+          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0).toFixed(2)}%</b><label className="custom-index-sort"><span>排序</span><select value={componentSort} onChange={(event) => setComponentSort(event.target.value as typeof componentSort)}><option value="manual">手动顺序</option><option value="marketCap">市值从高到低</option><option value="price">股价从高到低</option><option value="pe">PE 从高到低</option><option value="weight">权重从高到低</option></select></label></div><div className="custom-index-component custom-index-component--header"><span>成分股名称</span><span>市值</span><span>当前股价</span><span>当前 PE</span><span>当前权重</span><span>操作</span></div>{getDisplayedComponents().map((component, index) => <div className="custom-index-component" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={componentSort !== 'manual' || index === 0} aria-label={`上移 ${component.name}`}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={componentSort !== 'manual' || index === getDisplayedComponents().length - 1} aria-label={`下移 ${component.name}`}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
           <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button><button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
         </div>
       ) : null}
