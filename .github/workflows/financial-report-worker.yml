@@ -17,9 +17,14 @@ on:
       - .github/workflows/financial-report-worker.yml
   workflow_dispatch:
 
+concurrency:
+  group: financial-report-api
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
