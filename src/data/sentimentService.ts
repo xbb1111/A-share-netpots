@@ -1,6 +1,15 @@
 import { buildFinancialApiUrl } from './financialReportService';
 
-export type SentimentPoint = { date: string; value: number; percentile252: number | null };
+export type SentimentPoint = {
+  date: string;
+  value: number;
+  percentile252: number | null;
+  rising0To5Share?: number | null;
+  rising5To10Share?: number | null;
+  risingAbove10Share?: number | null;
+  top3Industries?: Array<{ name: string; amountYi: number; share: number }>;
+  totalAmountYi?: number | null;
+};
 
 export type SentimentMetric = {
   id: 'turnover' | 'top3IndustryShare' | 'risingShare' | 'aboveMa20Share' | 'marginBuyShare' | 'erp';
@@ -9,6 +18,7 @@ export type SentimentMetric = {
   direction: 'higher-hot' | 'lower-hot';
   source: string;
   formula: string;
+  interpretation: string;
   value: number | null;
   percentile252: number | null;
   zone: '极度恐慌' | '偏冷' | '中性' | '偏热' | '极度贪婪' | '数据不足';

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, RefreshCw } from 'lucide-react';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SectionHeader } from './SectionHeader';
 import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentSnapshot } from '../data/sentimentService';
 
@@ -75,6 +75,8 @@ export function SentimentIndicatorPanel() {
 function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start: number; end: number }) {
   const data = metric.series.slice(start, end + 1);
   const tone = zoneTone(metric.zone);
+  const latest = metric.series.at(-1);
+  const showRisingBands = metric.id === 'risingShare';
   return (
     <article className={`sentiment-card sentiment-card--${tone}`}>
       <header>
@@ -88,16 +90,30 @@ function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start:
             <CartesianGrid stroke="rgba(148,163,184,.09)" vertical={false} />
             <XAxis dataKey="date" minTickGap={42} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: string) => value.slice(5)} />
             <YAxis width={42} domain={['auto', 'auto']} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: number) => Number(value).toFixed(metric.id === 'erp' ? 1 : 0)} />
-            <Tooltip contentStyle={{ background: '#0a151d', border: '1px solid rgba(94,182,201,.28)', borderRadius: 8 }} labelStyle={{ color: '#d7e1e8' }} formatter={(value) => [formatValue(Number(value), metric.unit), metric.name]} />
-            <Line type="monotone" dataKey="value" dot={false} stroke={toneColor(tone)} strokeWidth={1.8} connectNulls />
+            <Tooltip contentStyle={{ background: '#0a151d', border: '1px solid rgba(94,182,201,.28)', borderRadius: 8 }} labelStyle={{ color: '#d7e1e8' }} formatter={(value, name) => [formatValue(Number(value), metric.unit), String(name)]} />
+            {showRisingBands ? (
+              <>
+                <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ color: '#91a2ae', fontSize: 10 }} />
+                <Line name="涨幅 0–5%" type="monotone" dataKey="rising0To5Share" dot={false} stroke="#d6aa5c" strokeWidth={1.7} connectNulls />
+                <Line name="涨幅 5–10%" type="monotone" dataKey="rising5To10Share" dot={false} stroke="#d46b73" strokeWidth={1.7} connectNulls />
+                <Line name="涨幅 10%以上" type="monotone" dataKey="risingAbove10Share" dot={false} stroke="#8c72d9" strokeWidth={1.7} connectNulls />
+              </>
+            ) : <Line name={metric.name} type="monotone" dataKey="value" dot={false} stroke={toneColor(tone)} strokeWidth={1.8} connectNulls />}
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <footer><span>{metric.formula}</span><small>来源：{metric.source}</small></footer>
+      {metric.id === 'top3IndustryShare' && latest?.top3Industries?.length ? (
+        <div className="sentiment-industry-breakdown">
+          <div><span>统一数据日成交额前三行业</span><strong>全市场 {formatYi(latest.totalAmountYi)}亿元</strong></div>
+          <ol>{latest.top3Industries.map((industry, index) => <li key={industry.name}><span>{index + 1}. {industry.name}</span><strong>{formatYi(industry.amountYi)}亿元 · {industry.share.toFixed(2)}%</strong></li>)}</ol>
+        </div>
+      ) : null}
+      <footer><span>{metric.interpretation}</span></footer>
     </article>
   );
 }
 
 function formatValue(value: number | null, unit: string) { return value === null ? '—' : `${value.toFixed(2)}${unit}`; }
+function formatYi(value: number | null | undefined) { return Number.isFinite(value) ? Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—'; }
 function zoneTone(zone: SentimentMetric['zone']) { if (zone === '极度恐慌' || zone === '偏冷') return 'cold'; if (zone === '偏热' || zone === '极度贪婪') return 'hot'; return 'neutral'; }
 function toneColor(tone: string) { return tone === 'hot' ? '#d46b73' : tone === 'cold' ? '#4fb7aa' : '#d6aa5c'; }

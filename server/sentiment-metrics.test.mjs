@@ -16,7 +16,12 @@ describe('sentiment metrics', () => {
       date: `2026-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String((index % 28) + 1).padStart(2, '0')}`,
       turnover: index + 1,
       top3IndustryShare: index + 2,
+      top3Industries: [{ name: '电子', amountYi: 100, share: 10 }],
+      totalAmountYi: 1000,
       risingShare: index + 3,
+      rising0To5Share: 20,
+      rising5To10Share: 5,
+      risingAbove10Share: 1,
       aboveMa20Share: index + 4,
       marginBuyShare: index + 5,
       erp: index + 6,
@@ -24,6 +29,8 @@ describe('sentiment metrics', () => {
     const payload = buildSentimentPayload(rows, { updatedAt: '2026-08-24T00:00:00.000Z' });
     expect(payload.metrics).toHaveLength(6);
     expect(payload.metrics.every((metric) => metric.series.length === 252)).toBe(true);
+    expect(payload.metrics.find((metric) => metric.id === 'top3IndustryShare').series.at(-1).top3Industries[0].name).toBe('电子');
+    expect(payload.metrics.find((metric) => metric.id === 'risingShare').series.at(-1).rising5To10Share).toBe(5);
     expect(payload).not.toHaveProperty('score');
   });
 
