@@ -51,6 +51,7 @@ export function SentimentIndicatorPanel() {
       <div className="sentiment-status">
         <span>统一数据日 <strong>{snapshot?.commonAsOf ?? '—'}</strong></span>
         <span>主题数据日 <strong>{snapshot?.themeAsOf ?? '—'}</strong></span>
+        {Number.isFinite(snapshot?.industryMappingCoverage) ? <span>行业标签覆盖 <strong>{Number(snapshot?.industryMappingCoverage).toFixed(2)}%</strong></span> : null}
         <span>{snapshot?.stale ? '已返回最近完整快照' : '六项指标已对齐'}</span>
         <span>一级行业互斥归类 · 主题不计入占比</span>
       </div>
