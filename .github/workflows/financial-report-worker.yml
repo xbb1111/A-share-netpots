@@ -37,7 +37,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Refresh market sentiment snapshot
-        run: npm run sentiment:seed || npm run sentiment:enrich
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            npm run sentiment:seed || npm run sentiment:enrich
+          else
+            npm run sentiment:enrich
+          fi
       - name: Deploy Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

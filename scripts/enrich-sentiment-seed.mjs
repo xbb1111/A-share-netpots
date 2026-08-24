@@ -133,11 +133,12 @@ async function fetchTencentHistory(code) {
   const payload = await fetchJson(url, 2).catch(() => ({}));
   const security = payload.data?.[symbol] ?? {};
   const rows = security.qfqday ?? security.day ?? [];
+  const volumeMultiplier = code.startsWith('688') ? 1 : 100;
   return rows.map((row) => {
     const prices = [number(row[1]), number(row[2]), number(row[3]), number(row[4])].filter(Number.isFinite);
-    const volumeLots = number(row[5]);
+    const volumeUnits = number(row[5]);
     const averagePrice = prices.length ? prices.reduce((sum, value) => sum + value, 0) / prices.length : null;
-    return { date: String(row[0]), close: number(row[2]), amount: Number.isFinite(averagePrice) && Number.isFinite(volumeLots) ? averagePrice * volumeLots * 100 : null };
+    return { date: String(row[0]), close: number(row[2]), amount: Number.isFinite(averagePrice) && Number.isFinite(volumeUnits) ? averagePrice * volumeUnits * volumeMultiplier : null };
   });
 }
 
