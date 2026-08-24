@@ -50,7 +50,10 @@ await concurrentMap(metadata, CONCURRENCY, async (stock) => {
 const minimumDailyStocks = Math.floor(metadata.length * MINIMUM_COVERAGE);
 const coveredDates = targetDates.filter((date) => {
   const aggregate = aggregates.get(date);
-  return aggregate.risingValid >= minimumDailyStocks && aggregate.ma20Valid >= minimumDailyStocks;
+  return aggregate.risingValid >= minimumDailyStocks
+    && aggregate.ma20Valid >= minimumDailyStocks
+    && aggregate.industryAmounts.size >= 20
+    && aggregate.totalAmount > 0;
 });
 if (coveredDates.length < 200 || coveredDates.at(-1) !== targetDates.at(-1)) {
   throw new Error(`insufficient Tencent history: ${coveredDates.length}/${targetDates.length} dates meet ${MINIMUM_COVERAGE * 100}% coverage`);
@@ -58,36 +61,20 @@ if (coveredDates.length < 200 || coveredDates.at(-1) !== targetDates.at(-1)) {
 
 const commonAsOf = targetDates.at(-1);
 const currentAggregate = aggregates.get(commonAsOf);
-const totalAmount = currentAggregate.totalAmount;
-const topIndustryEntries = [...currentAggregate.industryAmounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
-if (currentAggregate.industryAmounts.size < 20 || topIndustryEntries.length !== 3 || totalAmount <= 0) {
-  throw new Error(`insufficient industry amount coverage on ${commonAsOf}: ${currentAggregate.industryAmounts.size} industries`);
-}
-const top3Amount = topIndustryEntries.reduce((sum, [, amount]) => sum + amount, 0);
-const top3Industries = topIndustryEntries.map(([name, amount]) => ({
-  name,
-  amountYi: round(amount / 100_000_000, 2),
-  share: round((amount / totalAmount) * 100, 2),
-}));
+const coveredDateSet = new Set(coveredDates);
 
 const enrichedRows = SENTIMENT_SEED_ROWS.map((row) => {
   const aggregate = aggregates.get(row.date);
-  if (!coveredDates.includes(row.date)) return row;
-  const enriched = {
+  if (!coveredDateSet.has(row.date)) return row;
+  return {
     ...row,
     risingShare: round((aggregate.rising / aggregate.risingValid) * 100, 4),
     rising0To5Share: round((aggregate.rising0To5 / aggregate.risingValid) * 100, 4),
     rising5To10Share: round((aggregate.rising5To10 / aggregate.risingValid) * 100, 4),
     risingAbove10Share: round((aggregate.risingAbove10 / aggregate.risingValid) * 100, 4),
     aboveMa20Share: round((aggregate.aboveMa20 / aggregate.ma20Valid) * 100, 4),
+    ...buildIndustryBreakdown(aggregate),
   };
-  if (row.date === commonAsOf) {
-    enriched.top3IndustryShare = round((top3Amount / totalAmount) * 100, 4);
-    enriched.top3Industries = top3Industries;
-    enriched.totalAmountYi = round(totalAmount / 100_000_000, 2);
-    enriched.amountEstimated = true;
-  }
-  return enriched;
 });
 
 const meta = {
@@ -103,6 +90,21 @@ console.log(`enriched ${coveredDates.length}/${enrichedRows.length} covered date
 
 function createAggregate() {
   return { rising: 0, rising0To5: 0, rising5To10: 0, risingAbove10: 0, risingValid: 0, aboveMa20: 0, ma20Valid: 0, totalAmount: 0, industryAmounts: new Map() };
+}
+
+function buildIndustryBreakdown(aggregate) {
+  const topEntries = [...aggregate.industryAmounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const top3Amount = topEntries.reduce((sum, [, amount]) => sum + amount, 0);
+  return {
+    top3IndustryShare: round((top3Amount / aggregate.totalAmount) * 100, 4),
+    top3Industries: topEntries.map(([name, amount]) => ({
+      name,
+      amountYi: round(amount / 100_000_000, 2),
+      share: round((amount / aggregate.totalAmount) * 100, 2),
+    })),
+    totalAmountYi: round(aggregate.totalAmount / 100_000_000, 2),
+    amountEstimated: true,
+  };
 }
 
 async function fetchStockUniverse() {

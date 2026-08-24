@@ -1069,14 +1069,14 @@ h2 {
 .sentiment-chart { width: 100%; height: 210px; }
 .sentiment-card footer { display: grid; gap: 4px; min-height: 36px; }
 .sentiment-card footer span { color: #aab8c2; font-size: 11px; line-height: 1.55; }
-.sentiment-industry-breakdown { display: grid; gap: 7px; padding: 9px 10px; border: 1px solid rgba(148, 163, 184, .11); border-radius: 8px; background: rgba(6, 16, 23, .48); }
-.sentiment-industry-breakdown > div,
-.sentiment-industry-breakdown li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.sentiment-industry-breakdown > div span { color: #91a2ae; font-size: 10px; }
-.sentiment-industry-breakdown > div strong { color: #d7e1e8; font-size: 10px; }
-.sentiment-industry-breakdown ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.sentiment-industry-breakdown li span { color: #c4d0d7; font-size: 11px; }
-.sentiment-industry-breakdown li strong { color: #f1d397; font-size: 11px; font-weight: 600; }
+.sentiment-tooltip { display: grid; min-width: 220px; gap: 8px; padding: 10px 11px; border: 1px solid rgba(94,182,201,.3); border-radius: 8px; background: rgba(6, 17, 24, .96); box-shadow: 0 12px 30px rgba(0,0,0,.28); }
+.sentiment-tooltip__date { color: #eef5f9; font-size: 11px; }
+.sentiment-tooltip__values { display: grid; gap: 4px; }
+.sentiment-tooltip__values span { font-size: 11px; }
+.sentiment-tooltip__industries { display: grid; gap: 5px; padding-top: 7px; border-top: 1px solid rgba(148,163,184,.14); }
+.sentiment-tooltip__industries div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sentiment-tooltip__industries span { color: #b7c4cc; font-size: 10px; }
+.sentiment-tooltip__industries strong { color: #f1d397; font-size: 10px; font-weight: 600; }
 .sentiment-loading { padding: 38px; color: var(--muted); text-align: center; }
 .sentiment-error { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid rgba(199,100,109,.28); border-radius: 8px; color: #efb8bd; background: rgba(199,100,109,.07); }
 .sentiment-error button { min-height: 30px; margin-left: auto; }

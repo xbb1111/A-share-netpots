@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SectionHeader } from './SectionHeader';
-import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentSnapshot } from '../data/sentimentService';
+import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentPoint, type SentimentSnapshot } from '../data/sentimentService';
 
 const DEFAULT_WINDOW = 120;
 
@@ -75,7 +75,6 @@ export function SentimentIndicatorPanel() {
 function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start: number; end: number }) {
   const data = metric.series.slice(start, end + 1);
   const tone = zoneTone(metric.zone);
-  const latest = metric.series.at(-1);
   const showRisingBands = metric.id === 'risingShare';
   return (
     <article className={`sentiment-card sentiment-card--${tone}`}>
@@ -86,30 +85,50 @@ function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start:
       <div className="sentiment-card__meta"><span>252日情绪分位</span><strong>{metric.percentile252 === null ? '—' : `${metric.percentile252.toFixed(1)}%`}</strong></div>
       <div className="sentiment-chart" aria-label={`${metric.name}历史趋势`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <LineChart data={data} margin={{ top: 8, right: showRisingBands ? 0 : 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="rgba(148,163,184,.09)" vertical={false} />
             <XAxis dataKey="date" minTickGap={42} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: string) => value.slice(5)} />
-            <YAxis width={42} domain={['auto', 'auto']} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: number) => Number(value).toFixed(metric.id === 'erp' ? 1 : 0)} />
-            <Tooltip contentStyle={{ background: '#0a151d', border: '1px solid rgba(94,182,201,.28)', borderRadius: 8 }} labelStyle={{ color: '#d7e1e8' }} formatter={(value, name) => [formatValue(Number(value), metric.unit), String(name)]} />
+            {showRisingBands ? (
+              <>
+                <YAxis yAxisId="breadth" width={42} domain={[0, 100]} tick={{ fill: '#d6aa5c', fontSize: 10 }} tickFormatter={(value: number) => `${value}`} />
+                <YAxis yAxisId="surge" orientation="right" width={42} domain={[0, (maximum: number) => Math.max(10, Math.ceil(maximum / 5) * 5)]} tick={{ fill: '#d46b73', fontSize: 10 }} tickFormatter={(value: number) => `${value}`} />
+              </>
+            ) : <YAxis width={42} domain={['auto', 'auto']} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: number) => Number(value).toFixed(metric.id === 'erp' ? 1 : 0)} />}
+            <Tooltip content={(props) => <SentimentChartTooltip active={props.active} payload={props.payload as unknown as readonly TooltipEntry[] | undefined} label={String(props.label ?? '')} metric={metric} />} />
             {showRisingBands ? (
               <>
                 <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ color: '#91a2ae', fontSize: 10 }} />
-                <Line name="涨幅 0–5%" type="monotone" dataKey="rising0To5Share" dot={false} stroke="#d6aa5c" strokeWidth={1.7} connectNulls />
-                <Line name="涨幅 5–10%" type="monotone" dataKey="rising5To10Share" dot={false} stroke="#d46b73" strokeWidth={1.7} connectNulls />
-                <Line name="涨幅 10%以上" type="monotone" dataKey="risingAbove10Share" dot={false} stroke="#8c72d9" strokeWidth={1.7} connectNulls />
+                <Line yAxisId="breadth" name="涨幅 0–5%（左轴）" type="monotone" dataKey="rising0To5Share" dot={false} stroke="#d6aa5c" strokeWidth={1.7} connectNulls />
+                <Line yAxisId="surge" name="涨幅 5–10%（右轴）" type="monotone" dataKey="rising5To10Share" dot={false} stroke="#d46b73" strokeWidth={1.7} connectNulls />
+                <Line yAxisId="surge" name="涨幅 10%以上（右轴）" type="monotone" dataKey="risingAbove10Share" dot={false} stroke="#8c72d9" strokeWidth={1.7} connectNulls />
               </>
             ) : <Line name={metric.name} type="monotone" dataKey="value" dot={false} stroke={toneColor(tone)} strokeWidth={1.8} connectNulls />}
           </LineChart>
         </ResponsiveContainer>
       </div>
-      {metric.id === 'top3IndustryShare' && latest?.top3Industries?.length ? (
-        <div className="sentiment-industry-breakdown">
-          <div><span>统一数据日成交额前三行业{latest.amountEstimated ? '（估算）' : ''}</span><strong>{latest.amountEstimated ? '估算' : ''}全市场 {formatYi(latest.totalAmountYi)}亿元</strong></div>
-          <ol>{latest.top3Industries.map((industry, index) => <li key={industry.name}><span>{index + 1}. {industry.name}</span><strong>{formatYi(industry.amountYi)}亿元 · {industry.share.toFixed(2)}%</strong></li>)}</ol>
-        </div>
-      ) : null}
       <footer><span>{metric.interpretation}</span></footer>
     </article>
+  );
+}
+
+type TooltipEntry = { name?: string; value?: number | string; color?: string; payload?: SentimentPoint };
+
+function SentimentChartTooltip({ active, payload, label, metric }: { active?: boolean; payload?: readonly TooltipEntry[]; label: string; metric: SentimentMetric }) {
+  if (!active || !payload?.length) return null;
+  const point = payload.find((entry) => entry.payload)?.payload;
+  return (
+    <div className="sentiment-tooltip">
+      <strong className="sentiment-tooltip__date">{label}</strong>
+      <div className="sentiment-tooltip__values">
+        {payload.map((entry) => <span key={entry.name} style={{ color: entry.color }}><i />{entry.name}：{formatValue(Number(entry.value), metric.unit)}</span>)}
+      </div>
+      {metric.id === 'top3IndustryShare' && point?.top3Industries?.length ? (
+        <div className="sentiment-tooltip__industries">
+          <div><span>{point.amountEstimated ? '估算' : ''}全市场</span><strong>{formatYi(point.totalAmountYi)}亿元</strong></div>
+          {point.top3Industries.map((industry, index) => <div key={industry.name}><span>{index + 1}. {industry.name}</span><strong>{formatYi(industry.amountYi)}亿元 · {industry.share.toFixed(2)}%</strong></div>)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
