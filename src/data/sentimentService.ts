@@ -26,10 +26,16 @@ export type SentimentMetric = {
   series: SentimentPoint[];
 };
 
+export type SentimentTheme = { name: string; amountYi: number };
+
 export type SentimentSnapshot = {
   commonAsOf: string | null;
   updatedAt: string;
   stale: boolean;
+  industryClassification: string | null;
+  industryMappingCoverage: number | null;
+  themeAsOf: string | null;
+  topThemes: SentimentTheme[];
   methodology: string;
   metrics: SentimentMetric[];
 };

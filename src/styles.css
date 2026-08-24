@@ -1074,9 +1074,15 @@ h2 {
 .sentiment-tooltip__values { display: grid; gap: 4px; }
 .sentiment-tooltip__values span { font-size: 11px; }
 .sentiment-tooltip__industries { display: grid; gap: 5px; padding-top: 7px; border-top: 1px solid rgba(148,163,184,.14); }
-.sentiment-tooltip__industries div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.sentiment-tooltip__industries span { color: #b7c4cc; font-size: 10px; }
-.sentiment-tooltip__industries strong { color: #f1d397; font-size: 10px; font-weight: 600; }
+.sentiment-tooltip__themes { display: grid; gap: 5px; padding-top: 7px; border-top: 1px dashed rgba(214,170,92,.22); }
+.sentiment-tooltip__industries p,
+.sentiment-tooltip__themes p { margin: 0 0 2px; color: #7fa0ae; font-size: 9px; line-height: 1.45; }
+.sentiment-tooltip__industries div,
+.sentiment-tooltip__themes div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sentiment-tooltip__industries span,
+.sentiment-tooltip__themes span { color: #b7c4cc; font-size: 10px; }
+.sentiment-tooltip__industries strong,
+.sentiment-tooltip__themes strong { color: #f1d397; font-size: 10px; font-weight: 600; }
 .sentiment-loading { padding: 38px; color: var(--muted); text-align: center; }
 .sentiment-error { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid rgba(199,100,109,.28); border-radius: 8px; color: #efb8bd; background: rgba(199,100,109,.07); }
 .sentiment-error button { min-height: 30px; margin-left: auto; }

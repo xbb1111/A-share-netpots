@@ -27,12 +27,22 @@ describe('sentiment metrics', () => {
       marginBuyShare: index + 5,
       erp: index + 6,
     }));
-    const payload = buildSentimentPayload(rows, { updatedAt: '2026-08-24T00:00:00.000Z' });
+    const payload = buildSentimentPayload(rows, {
+      updatedAt: '2026-08-24T00:00:00.000Z',
+      industryClassification: '申万一级（测试映射）',
+      industryMappingCoverage: 98.7,
+      themeAsOf: '2026-08-24',
+      topThemes: [{ name: '商业航天', amountYi: 1200 }],
+    });
     expect(payload.metrics).toHaveLength(6);
     expect(payload.metrics.every((metric) => metric.series.length === 252)).toBe(true);
     expect(payload.metrics.find((metric) => metric.id === 'top3IndustryShare').series.at(-1).top3Industries[0].name).toBe('电子');
     expect(payload.metrics.find((metric) => metric.id === 'top3IndustryShare').series.at(-1).amountEstimated).toBe(true);
     expect(payload.metrics.find((metric) => metric.id === 'risingShare').series.at(-1).rising5To10Share).toBe(5);
+    expect(payload.industryClassification).toContain('申万一级');
+    expect(payload.industryMappingCoverage).toBe(98.7);
+    expect(payload.themeAsOf).toBe('2026-08-24');
+    expect(payload.topThemes).toEqual([{ name: '商业航天', amountYi: 1200 }]);
     expect(payload).not.toHaveProperty('score');
   });
 

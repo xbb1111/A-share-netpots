@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SectionHeader } from './SectionHeader';
-import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentPoint, type SentimentSnapshot } from '../data/sentimentService';
+import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentPoint, type SentimentSnapshot, type SentimentTheme } from '../data/sentimentService';
 
 const DEFAULT_WINDOW = 120;
 
@@ -50,8 +50,9 @@ export function SentimentIndicatorPanel() {
 
       <div className="sentiment-status">
         <span>统一数据日 <strong>{snapshot?.commonAsOf ?? '—'}</strong></span>
+        <span>主题数据日 <strong>{snapshot?.themeAsOf ?? '—'}</strong></span>
         <span>{snapshot?.stale ? '已返回最近完整快照' : '六项指标已对齐'}</span>
-        <span>公开数据代理口径 · 不合成总分</span>
+        <span>一级行业互斥归类 · 主题不计入占比</span>
       </div>
 
       {error ? <div className="sentiment-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => void load()}>重试</button></div> : null}
@@ -64,15 +65,15 @@ export function SentimentIndicatorPanel() {
         </div>
       ) : null}
 
-      {snapshot ? <div className="sentiment-grid">{snapshot.metrics.map((metric) => <SentimentCard key={metric.id} metric={metric} start={range.start} end={range.end} />)}</div> : loading ? <div className="sentiment-loading">正在读取最近完整交易日…</div> : null}
+      {snapshot ? <div className="sentiment-grid">{snapshot.metrics.map((metric) => <SentimentCard key={metric.id} metric={metric} start={range.start} end={range.end} topThemes={snapshot.topThemes ?? []} themeAsOf={snapshot.themeAsOf ?? null} industryClassification={snapshot.industryClassification ?? null} />)}</div> : loading ? <div className="sentiment-loading">正在读取最近完整交易日…</div> : null}
 
-      <p className="sentiment-disclaimer">指标依据渤海证券研报六项框架拆分展示。公开数据与 iFinD 在样本、行业分类和估值口径上可能存在差异；仅供研究参考，不构成投资建议。
+      <p className="sentiment-disclaimer">指标依据渤海证券研报六项框架拆分展示。行业采用申万一级互斥归类；热门主题成分可能重叠，仅展示成交额、不参与占比计算。公开数据与 iFinD 在样本和估值口径上可能存在差异；仅供研究参考，不构成投资建议。
       </p>
     </section>
   );
 }
 
-function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start: number; end: number }) {
+function SentimentCard({ metric, start, end, topThemes, themeAsOf, industryClassification }: { metric: SentimentMetric; start: number; end: number; topThemes: SentimentTheme[]; themeAsOf: string | null; industryClassification: string | null }) {
   const data = metric.series.slice(start, end + 1);
   const tone = zoneTone(metric.zone);
   const showRisingBands = metric.id === 'risingShare';
@@ -94,7 +95,7 @@ function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start:
                 <YAxis yAxisId="surge" orientation="right" width={42} domain={[0, (maximum: number) => Math.max(10, Math.ceil(maximum / 5) * 5)]} tick={{ fill: '#d46b73', fontSize: 10 }} tickFormatter={(value: number) => `${value}`} />
               </>
             ) : <YAxis width={42} domain={['auto', 'auto']} tick={{ fill: '#7f8f9d', fontSize: 10 }} tickFormatter={(value: number) => Number(value).toFixed(metric.id === 'erp' ? 1 : 0)} />}
-            <Tooltip content={(props) => <SentimentChartTooltip active={props.active} payload={props.payload as unknown as readonly TooltipEntry[] | undefined} label={String(props.label ?? '')} metric={metric} />} />
+            <Tooltip content={(props) => <SentimentChartTooltip active={props.active} payload={props.payload as unknown as readonly TooltipEntry[] | undefined} label={String(props.label ?? '')} metric={metric} topThemes={topThemes} themeAsOf={themeAsOf} industryClassification={industryClassification} />} />
             {showRisingBands ? (
               <>
                 <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ color: '#91a2ae', fontSize: 10 }} />
@@ -113,7 +114,7 @@ function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start:
 
 type TooltipEntry = { name?: string; value?: number | string; color?: string; payload?: SentimentPoint };
 
-function SentimentChartTooltip({ active, payload, label, metric }: { active?: boolean; payload?: readonly TooltipEntry[]; label: string; metric: SentimentMetric }) {
+function SentimentChartTooltip({ active, payload, label, metric, topThemes, themeAsOf, industryClassification }: { active?: boolean; payload?: readonly TooltipEntry[]; label: string; metric: SentimentMetric; topThemes: SentimentTheme[]; themeAsOf: string | null; industryClassification: string | null }) {
   if (!active || !payload?.length) return null;
   const point = payload.find((entry) => entry.payload)?.payload;
   return (
@@ -124,8 +125,15 @@ function SentimentChartTooltip({ active, payload, label, metric }: { active?: bo
       </div>
       {metric.id === 'top3IndustryShare' && point?.top3Industries?.length ? (
         <div className="sentiment-tooltip__industries">
+          <p>{industryClassification ?? '申万一级行业'} · {label}</p>
           <div><span>{point.amountEstimated ? '估算' : ''}全市场</span><strong>{formatYi(point.totalAmountYi)}亿元</strong></div>
           {point.top3Industries.map((industry, index) => <div key={industry.name}><span>{index + 1}. {industry.name}</span><strong>{formatYi(industry.amountYi)}亿元 · {industry.share.toFixed(2)}%</strong></div>)}
+        </div>
+      ) : null}
+      {metric.id === 'top3IndustryShare' && topThemes.length ? (
+        <div className="sentiment-tooltip__themes">
+          <p>热门主题 · {themeAsOf ?? '—'}（独立观察，不计入占比）</p>
+          {topThemes.map((theme, index) => <div key={theme.name}><span>{index + 1}. {theme.name}</span><strong>{formatYi(theme.amountYi)}亿元</strong></div>)}
         </div>
       ) : null}
     </div>

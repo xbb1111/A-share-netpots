@@ -1,6 +1,6 @@
 export const SENTIMENT_METRIC_DEFINITIONS = [
   { id: 'turnover', name: '换手率', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '有效 A 股自由流通市值加权换手率', interpretation: '高：交易活跃、情绪升温；低：交投清淡、情绪偏冷。' },
-  { id: 'top3IndustryShare', name: 'TOP3 行业成交额占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '成交额前三行业合计 ÷ 全市场成交额', interpretation: '高：资金集中于少数主线、情绪偏热；低：成交分散、主线不突出。' },
+  { id: 'top3IndustryShare', name: 'TOP3 申万一级行业成交额占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情 / 申万行业分类', formula: '成交额前三申万一级行业合计 ÷ 全市场成交额', interpretation: '高：资金集中于少数一级行业、情绪偏热；低：行业成交分散。热门主题独立观察，不计入本指标。' },
   { id: 'risingShare', name: '上涨个股占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '上涨股票数 ÷ 当日有效股票数', interpretation: '高：赚钱效应覆盖面广、情绪偏热；低：亏钱效应扩散、情绪偏冷。' },
   { id: 'aboveMa20Share', name: '个股站上 MA20 占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '收盘价高于 20 日简单均线股票数 ÷ MA20 有效股票数', interpretation: '高：中期趋势覆盖面强、情绪偏热；低：多数个股趋势偏弱、情绪偏冷。' },
   { id: 'marginBuyShare', name: '融资买入额占比', unit: '%', direction: 'higher-hot', source: '东方财富两融汇总 / 国证A指', formula: '沪深两市融资买入额 ÷ A 股成交额', interpretation: '高：杠杆资金加速入场、风险偏好升温；低：融资参与减弱、情绪偏冷。' },
@@ -69,7 +69,11 @@ export function buildSentimentPayload(rows, options = {}) {
     commonAsOf,
     updatedAt: options.updatedAt ?? new Date().toISOString(),
     stale: Boolean(options.stale),
-    methodology: '公开数据代理口径；六项独立展示，不合成总分。',
+    industryClassification: options.industryClassification ?? null,
+    industryMappingCoverage: Number.isFinite(options.industryMappingCoverage) ? options.industryMappingCoverage : null,
+    themeAsOf: options.themeAsOf ?? null,
+    topThemes: Array.isArray(options.topThemes) ? options.topThemes : [],
+    methodology: '公开数据代理口径；TOP3 按互斥的申万一级行业计算，主题榜独立展示且不计入占比；六项独立展示，不合成总分。',
     metrics,
   };
 }

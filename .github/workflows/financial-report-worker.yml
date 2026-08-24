@@ -12,6 +12,7 @@ on:
       - server/sentiment-seed.mjs
       - scripts/build-sentiment-seed.mjs
       - scripts/enrich-sentiment-seed.mjs
+      - scripts/sentiment-taxonomy.mjs
       - wrangler.toml
       - package.json
       - package-lock.json

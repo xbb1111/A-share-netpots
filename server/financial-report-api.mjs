@@ -147,6 +147,10 @@ function getMarketSentiment() {
   return buildSentimentPayload(SENTIMENT_SEED_ROWS, {
     updatedAt: SENTIMENT_SEED_META.generatedAt,
     stale: false,
+    industryClassification: SENTIMENT_SEED_META.industryClassification,
+    industryMappingCoverage: SENTIMENT_SEED_META.industryMappingCoverage,
+    themeAsOf: SENTIMENT_SEED_META.themeAsOf,
+    topThemes: SENTIMENT_SEED_META.topThemes,
   });
 }
 
