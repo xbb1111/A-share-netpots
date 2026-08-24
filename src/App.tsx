@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
+  Activity,
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
@@ -46,6 +47,7 @@ import { MetricCard } from './components/MetricCard';
 import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
+import { SentimentIndicatorPanel } from './components/SentimentIndicatorPanel';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -2288,6 +2290,7 @@ function ToolboxPage() {
   const [isPriceToolOpen, setIsPriceToolOpen] = useState(route.tool === 'price');
   const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
   const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(route.tool === 'index');
+  const [isSentimentToolOpen, setIsSentimentToolOpen] = useState(route.tool === 'sentiment');
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -2295,6 +2298,7 @@ function ToolboxPage() {
       setRoute(next);
       if (next.tool === 'price') setIsPriceToolOpen(true);
       if (next.tool === 'index') setIsCustomIndexToolOpen(true);
+      if (next.tool === 'sentiment') setIsSentimentToolOpen(true);
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -2362,6 +2366,21 @@ function ToolboxPage() {
           <button
             className="tool-card__launch"
             type="button"
+            onClick={() => setIsSentimentToolOpen((current) => !current)}
+            aria-expanded={isSentimentToolOpen}
+          >
+            <div>
+              <strong>情绪指标</strong>
+              <span>内置工具 · 六项市场情绪指标与 252 日分位</span>
+            </div>
+            <Activity size={18} aria-hidden="true" />
+          </button>
+        </article>
+
+        <article className="tool-card tool-card--builtin">
+          <button
+            className="tool-card__launch"
+            type="button"
             onClick={() => setIsCustomIndexToolOpen((current) => !current)}
             aria-expanded={isCustomIndexToolOpen}
           >
@@ -2404,6 +2423,7 @@ function ToolboxPage() {
       {isPriceToolOpen ? <PriceDisciplinePanel /> : null}
       {isFinancialReportToolOpen ? <FinancialReportPanel /> : null}
       {isCustomIndexToolOpen ? <CustomIndexToolPanel previewId={route.previewId} /> : null}
+      {isSentimentToolOpen ? <SentimentIndicatorPanel /> : null}
     </section>
   );
 }

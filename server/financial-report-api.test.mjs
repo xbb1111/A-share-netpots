@@ -9,6 +9,17 @@ import {
 } from './financial-report-api.mjs';
 
 describe('financial-report-api helpers', () => {
+  it('serves six independent sentiment indicators with aligned history', async () => {
+    const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/market-sentiment?refresh=1'));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.metrics).toHaveLength(6);
+    expect(payload.metrics.every((metric) => metric.series.length > 0)).toBe(true);
+    expect(payload.metrics.every((metric) => metric.series.at(-1).date === payload.commonAsOf)).toBe(true);
+    expect(payload).not.toHaveProperty('score');
+  });
+
   it('falls back to Tencent daily K-lines after Eastmoney retries fail', async () => {
     const fetcher = globalThis.fetch;
     const hosts = [];

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "api": "node server/financial-report-node.mjs",
+    "sentiment:seed": "node scripts/build-sentiment-seed.mjs",
     "worker:dev": "npx wrangler dev",
     "worker:deploy": "npx wrangler deploy",
     "dev": "vite --host 0.0.0.0",

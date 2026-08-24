@@ -1,3 +1,6 @@
+import { buildSentimentPayload } from './sentiment-metrics.mjs';
+import { SENTIMENT_SEED_META, SENTIMENT_SEED_ROWS } from './sentiment-seed.mjs';
+
 const EASTMONEY_TOKEN = 'D43BF722C8E33A6';
 const CNINFO_REPORT_CATEGORIES = [
   'category_ndbg_szsh',
@@ -49,6 +52,7 @@ export async function handleFinancialReportRequest(request) {
         endpoints: [
           '/api/securities/search?q=603929',
           '/api/filings?code=603929&type=all',
+          '/api/market-sentiment',
           'POST /api/filings/analyze',
         ],
         note: '8787 是后端 API 端口，正式工具界面请打开 frontend 地址。',
@@ -93,6 +97,10 @@ export async function handleFinancialReportRequest(request) {
       return jsonResponse(await getMarketKline(url.searchParams));
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/market-sentiment') {
+      return jsonResponse(getMarketSentiment());
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/security-metrics') {
       return jsonResponse(await getSecurityMetrics((url.searchParams.get('code') ?? '').trim()));
     }
@@ -133,6 +141,13 @@ async function getMarketKline(params) {
       throw error;
     }
   }
+}
+
+function getMarketSentiment() {
+  return buildSentimentPayload(SENTIMENT_SEED_ROWS, {
+    updatedAt: SENTIMENT_SEED_META.generatedAt,
+    stale: false,
+  });
 }
 
 async function getTencentKline(code, klt, limit) {

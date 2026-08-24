@@ -965,6 +965,116 @@ h2 {
   gap: 14px;
 }
 
+.sentiment-tool {
+  display: grid;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.sentiment-tool__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sentiment-refresh,
+.sentiment-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid rgba(94, 182, 201, .32);
+  border-radius: 7px;
+  background: rgba(94, 182, 201, .09);
+  color: #b9e7f0;
+  cursor: pointer;
+}
+
+.sentiment-refresh:disabled { opacity: .62; cursor: wait; }
+
+.sentiment-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sentiment-status span {
+  padding: 6px 9px;
+  border: 1px solid rgba(148, 163, 184, .13);
+  border-radius: 999px;
+  background: rgba(8, 16, 24, .42);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sentiment-status strong { color: #eef5f9; }
+
+.sentiment-range {
+  display: grid;
+  grid-template-columns: minmax(230px, .8fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 13px 15px;
+  border: 1px solid rgba(214, 170, 92, .18);
+  border-radius: 10px;
+  background: rgba(8, 16, 24, .48);
+}
+
+.sentiment-range > div,
+.sentiment-range label { display: grid; gap: 6px; }
+.sentiment-range strong { color: #eef5f9; font-size: 13px; }
+.sentiment-range span { color: var(--muted); font-size: 11px; }
+.sentiment-range input { width: 100%; accent-color: var(--gold); cursor: ew-resize; }
+
+.sentiment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sentiment-card {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid rgba(148, 163, 184, .13);
+  border-top-color: rgba(214, 170, 92, .42);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(13, 28, 38, .9), rgba(8, 18, 26, .76));
+}
+
+.sentiment-card--hot { border-top-color: rgba(212, 107, 115, .72); }
+.sentiment-card--cold { border-top-color: rgba(79, 183, 170, .72); }
+
+.sentiment-card header,
+.sentiment-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sentiment-card header > div { display: grid; gap: 4px; }
+.sentiment-card header span,
+.sentiment-card__meta span { color: var(--muted); font-size: 11px; }
+.sentiment-card header strong { color: #f7fbfd; font-size: 25px; letter-spacing: -.02em; }
+.sentiment-card header b { padding: 5px 8px; border-radius: 999px; background: rgba(214, 170, 92, .11); color: #f2d69b; font-size: 11px; }
+.sentiment-card--hot header b { background: rgba(212, 107, 115, .12); color: #f3b9be; }
+.sentiment-card--cold header b { background: rgba(79, 183, 170, .12); color: #9edbd4; }
+.sentiment-card__meta strong { color: #eef5f9; font-size: 14px; }
+
+.sentiment-chart { width: 100%; height: 210px; }
+.sentiment-card footer { display: grid; gap: 4px; min-height: 44px; }
+.sentiment-card footer span { color: #aab8c2; font-size: 11px; line-height: 1.55; }
+.sentiment-card footer small { color: #687986; font-size: 10px; }
+.sentiment-loading { padding: 38px; color: var(--muted); text-align: center; }
+.sentiment-error { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid rgba(199,100,109,.28); border-radius: 8px; color: #efb8bd; background: rgba(199,100,109,.07); }
+.sentiment-error button { min-height: 30px; margin-left: auto; }
+.sentiment-disclaimer { margin: 0; padding-top: 2px; color: #687986; font-size: 10px; line-height: 1.65; }
+
 .price-tool {
   display: grid;
   gap: 16px;
@@ -2806,6 +2916,7 @@ h2 {
 }
 
 @media (max-width: 1180px) {
+  .sentiment-grid { grid-template-columns: 1fr; }
   .custom-index-layout {
     grid-template-columns: 1fr;
   }
@@ -2885,6 +2996,13 @@ h2 {
   .tool-form {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 720px) {
+  .sentiment-tool__heading { align-items: stretch; flex-direction: column; }
+  .sentiment-refresh { width: 100%; }
+  .sentiment-range { grid-template-columns: 1fr; gap: 11px; }
+  .sentiment-chart { height: 190px; }
 }
 
 @media (max-width: 760px) {

@@ -10,6 +10,10 @@ describe('toolbox route', () => {
     expect(parseToolboxRoute('#toolbox?tool=price&code=300750')).toEqual({ tool: 'price', previewId: null });
   });
 
+  it('parses the sentiment indicator tool route', () => {
+    expect(parseToolboxRoute('#toolbox?tool=sentiment')).toEqual({ tool: 'sentiment', previewId: null });
+  });
+
   it('ignores tool parameters outside the toolbox page', () => {
     expect(parseToolboxRoute('#industries?tool=index&preview=old')).toEqual({ tool: null, previewId: null });
   });

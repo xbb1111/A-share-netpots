@@ -1,4 +1,4 @@
-export type ToolboxRoute = { tool: 'price' | 'index' | null; previewId: string | null };
+export type ToolboxRoute = { tool: 'price' | 'index' | 'sentiment' | null; previewId: string | null };
 
 export function parseToolboxRoute(hash: string): ToolboxRoute {
   const route = hash.replace(/^#/, '');
@@ -7,7 +7,7 @@ export function parseToolboxRoute(hash: string): ToolboxRoute {
   const params = new URLSearchParams(query);
   const tool = params.get('tool');
   return {
-    tool: tool === 'price' || tool === 'index' ? tool : null,
+    tool: tool === 'price' || tool === 'index' || tool === 'sentiment' ? tool : null,
     previewId: tool === 'index' ? params.get('preview') : null,
   };
 }
