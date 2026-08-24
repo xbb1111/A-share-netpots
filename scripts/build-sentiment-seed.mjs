@@ -5,7 +5,7 @@ const EASTMONEY_TOKEN = 'bd1d9ddb04089700cf9c27f6f7426281';
 const UNIVERSE = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048';
 const TARGET_DAYS = 252;
 const HISTORY_DAYS = 285;
-const CONCURRENCY = 24;
+const CONCURRENCY = 36;
 const MINIMUM_COVERAGE = 0.8;
 
 console.log('loading index history');
@@ -120,8 +120,8 @@ async function fetchStockPage(page) {
 
 async function fetchStockHistory(code) {
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
-  setParams(url, { secid: `${/^[659]/.test(code) ? 1 : 0}.${code}`, ut: EASTMONEY_TOKEN, klt: 101, fqt: 0, lmt: HISTORY_DAYS, end: '20500101', fields1: 'f1,f2,f3,f4,f5,f6', fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61' });
-  const payload = await fetchJson(url, 3).catch(() => ({}));
+  setParams(url, { secid: `${/^[659]/.test(code) ? 1 : 0}.${code}`, klt: 101, fqt: 0, lmt: HISTORY_DAYS, end: '20500101', fields1: 'f1,f2,f3,f4,f5,f6', fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61' });
+  const payload = await fetchJson(url, 2).catch(() => ({}));
   return (payload.data?.klines ?? []).map((line) => {
     const values = line.split(',');
     return { date: values[0], close: number(values[2]), amount: number(values[6]), changePercent: number(values[8]), turnover: number(values[10]) };
