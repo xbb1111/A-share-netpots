@@ -83,6 +83,7 @@ const seedRows = targetDates.map((date) => {
     top3IndustryShare: round((top3Amount / aggregate.totalAmount) * 100, 4),
     top3Industries,
     totalAmountYi: round(aggregate.totalAmount / 100_000_000, 2),
+    amountEstimated: false,
     risingShare: round((aggregate.rising / aggregate.risingValid) * 100, 4),
     rising0To5Share: round((aggregate.rising0To5 / aggregate.risingValid) * 100, 4),
     rising5To10Share: round((aggregate.rising5To10 / aggregate.risingValid) * 100, 4),

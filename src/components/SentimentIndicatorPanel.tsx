@@ -104,7 +104,7 @@ function SentimentCard({ metric, start, end }: { metric: SentimentMetric; start:
       </div>
       {metric.id === 'top3IndustryShare' && latest?.top3Industries?.length ? (
         <div className="sentiment-industry-breakdown">
-          <div><span>统一数据日成交额前三行业</span><strong>全市场 {formatYi(latest.totalAmountYi)}亿元</strong></div>
+          <div><span>统一数据日成交额前三行业{latest.amountEstimated ? '（估算）' : ''}</span><strong>{latest.amountEstimated ? '估算' : ''}全市场 {formatYi(latest.totalAmountYi)}亿元</strong></div>
           <ol>{latest.top3Industries.map((industry, index) => <li key={industry.name}><span>{index + 1}. {industry.name}</span><strong>{formatYi(industry.amountYi)}亿元 · {industry.share.toFixed(2)}%</strong></li>)}</ol>
         </div>
       ) : null}

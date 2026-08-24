@@ -51,6 +51,7 @@ export function buildSentimentPayload(rows, options = {}) {
           ...(definition.id === 'top3IndustryShare' ? {
             top3Industries: row.top3Industries ?? [],
             totalAmountYi: round(row.totalAmountYi, 2),
+            amountEstimated: Boolean(row.amountEstimated),
           } : {}),
         };
       });

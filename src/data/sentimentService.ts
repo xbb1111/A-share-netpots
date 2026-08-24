@@ -9,6 +9,7 @@ export type SentimentPoint = {
   risingAbove10Share?: number | null;
   top3Industries?: Array<{ name: string; amountYi: number; share: number }>;
   totalAmountYi?: number | null;
+  amountEstimated?: boolean;
 };
 
 export type SentimentMetric = {
