@@ -13,6 +13,15 @@ export const LARGE_CAPITAL_ETFS = [
   { code: '159915', name: '易方达创业板ETF', indexId: 'chinext', indexName: '创业板', exchange: 'SZSE' },
 ];
 
+export const LARGE_CAPITAL_BENCHMARKS = [
+  { id: 'sse50', name: '上证50', code: '000016', secid: '1.000016' },
+  { id: 'csi300', name: '沪深300', code: '000300', secid: '1.000300' },
+  { id: 'csi500', name: '中证500', code: '000905', secid: '1.000905' },
+  { id: 'csi1000', name: '中证1000', code: '000852', secid: '1.000852' },
+  { id: 'star50', name: '科创50', code: '000688', secid: '1.000688' },
+  { id: 'chinext', name: '创业板指', code: '399006', secid: '0.399006' },
+];
+
 export const LARGE_CAPITAL_EVENTS = [
   {
     date: '2025-04-07',
@@ -103,7 +112,7 @@ export function aggregateCffexDay(rows, product, date) {
   return { date, product, contracts: [...new Set(rows.map((row) => row.contract))].sort(), tiers, members: memberRows };
 }
 
-export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString(), etfs = [], institutionDays = [] }) {
+export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString(), etfs = [], benchmarks = [], institutionDays = [] }) {
   const processedEtfs = etfs.map(processEtf).filter((item) => item.series.length);
   const dateSet = new Set(processedEtfs.flatMap((item) => item.series.map((point) => point.date)));
   const dates = [...dateSet].sort().slice(-252);
@@ -127,6 +136,7 @@ export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString
   const institutionAsOf = products.map((item) => item.asOf).filter(Boolean).sort().at(-1) ?? null;
   const asOf = [nationalAsOf, institutionAsOf].filter(Boolean).sort().at(-1) ?? null;
   const stale = isStale(asOf, generatedAt, 7);
+  const processedBenchmarks = benchmarks.map(processBenchmark).filter((item) => item.series.length);
 
   return {
     version: 1,
@@ -135,6 +145,7 @@ export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString
     stale,
     status: deriveStatus(allSeries, products),
     methodology: 'ETF 净申购为份额变化×当日单位净值的代理估算；期指为中金所前20会员席位披露汇总。',
+    benchmarks: processedBenchmarks,
     nationalTeam: {
       asOf: nationalAsOf,
       label: '核心宽基 ETF 资金代理信号',
@@ -229,6 +240,7 @@ function buildInstitutionProduct(id, inputDays) {
   return {
     id,
     name: ({ IF: '沪深300股指期货', IH: '上证50股指期货', IC: '中证500股指期货', IM: '中证1000股指期货' })[id],
+    benchmarkId: ({ IF: 'csi300', IH: 'sse50', IC: 'csi500', IM: 'csi1000' })[id],
     asOf: latest?.date ?? null,
     contracts: latest?.contracts ?? [],
     latest: latest?.tiers ?? null,
@@ -237,6 +249,21 @@ function buildInstitutionProduct(id, inputDays) {
     source: '中国金融期货交易所成交持仓排名',
     methodology: '同品种各合约前20披露席位加总；披露净头寸不等于完整账户净头寸。',
     qualityFlags: latest ? [] : ['missing-product-data'],
+  };
+}
+
+function processBenchmark(raw) {
+  const meta = LARGE_CAPITAL_BENCHMARKS.find((item) => item.id === raw.id) ?? raw;
+  return {
+    id: meta.id,
+    name: meta.name,
+    code: meta.code,
+    source: '东方财富公开指数行情',
+    series: [...(raw.series ?? [])]
+      .map((point) => ({ date: point.date, close: numberOrNull(point.close) }))
+      .filter((point) => point.date && point.close !== null)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-252),
   };
 }
 

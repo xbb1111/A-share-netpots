@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Building2, Landmark, RefreshCw } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SectionHeader } from './SectionHeader';
-import { capitalWindow, fetchLargeCapitalSnapshot, sortCapitalMembers, type CapitalMember, type CapitalProduct, type LargeCapitalSnapshot } from '../data/largeCapitalService';
+import { addNormalizedOverlays, capitalWindow, fetchLargeCapitalSnapshot, sortCapitalMembers, type CapitalMember, type CapitalProduct, type LargeCapitalSnapshot } from '../data/largeCapitalService';
 
 type Tab = 'national' | 'institutions';
 type MemberMode = 'long' | 'short' | 'netLong' | 'netShort';
@@ -15,7 +15,10 @@ export function LargeCapitalFlowPanel() {
   const [tab, setTab] = useState<Tab>('national');
   const [windowSize, setWindowSize] = useState<(typeof WINDOWS)[number]>(60);
   const [indexId, setIndexId] = useState('all');
+  const [etfCode, setEtfCode] = useState('510300');
+  const [showNationalBenchmark, setShowNationalBenchmark] = useState(false);
   const [productId, setProductId] = useState<CapitalProduct['id']>('IF');
+  const [showInstitutionBenchmark, setShowInstitutionBenchmark] = useState(false);
   const [memberMode, setMemberMode] = useState<MemberMode>('netLong');
   const [memberName, setMemberName] = useState<string | null>(null);
 
@@ -48,15 +51,22 @@ export function LargeCapitalFlowPanel() {
       <div className="capital-window" aria-label="时间范围">{WINDOWS.map((value) => <button key={value} type="button" className={windowSize === value ? 'active' : ''} onClick={() => setWindowSize(value)}>{value}日</button>)}</div>
       {error ? <div className="capital-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => void load()}>重试</button></div> : null}
       {!error && !snapshot && loading ? <div className="capital-loading">正在读取交易所公开数据快照…</div> : null}
-      {snapshot && tab === 'national' ? <NationalTeamView snapshot={snapshot} windowSize={windowSize} selectedGroup={selectedGroup} indexId={indexId} setIndexId={setIndexId} /> : null}
-      {snapshot && tab === 'institutions' ? <InstitutionView snapshot={snapshot} windowSize={Math.min(windowSize, 120)} product={selectedProduct} productId={productId} setProductId={setProductId} memberMode={memberMode} setMemberMode={setMemberMode} member={selectedMember} setMemberName={setMemberName} /> : null}
+      {snapshot && tab === 'national' ? <NationalTeamView snapshot={snapshot} windowSize={windowSize} selectedGroup={selectedGroup} indexId={indexId} setIndexId={setIndexId} etfCode={etfCode} setEtfCode={setEtfCode} showBenchmark={showNationalBenchmark} setShowBenchmark={setShowNationalBenchmark} /> : null}
+      {snapshot && tab === 'institutions' ? <InstitutionView snapshot={snapshot} windowSize={Math.min(windowSize, 120)} product={selectedProduct} productId={productId} setProductId={setProductId} memberMode={memberMode} setMemberMode={setMemberMode} member={selectedMember} setMemberName={setMemberName} showBenchmark={showInstitutionBenchmark} setShowBenchmark={setShowInstitutionBenchmark} /> : null}
       {snapshot ? <p className="capital-disclaimer">{tab === 'national' ? snapshot.nationalTeam.disclaimer : snapshot.institutions.disclaimer} 仅供研究观察，不构成投资建议。</p> : null}
     </section>
   );
 }
 
-function NationalTeamView({ snapshot, windowSize, selectedGroup, indexId, setIndexId }: { snapshot: LargeCapitalSnapshot; windowSize: number; selectedGroup: LargeCapitalSnapshot['nationalTeam']['indexGroups'][number] | undefined; indexId: string; setIndexId: (id: string) => void }) {
-  const chartData = capitalWindow(selectedGroup?.series ?? [], windowSize);
+function NationalTeamView({ snapshot, windowSize, selectedGroup, indexId, setIndexId, etfCode, setEtfCode, showBenchmark, setShowBenchmark }: { snapshot: LargeCapitalSnapshot; windowSize: number; selectedGroup: LargeCapitalSnapshot['nationalTeam']['indexGroups'][number] | undefined; indexId: string; setIndexId: (id: string) => void; etfCode: string; setEtfCode: (code: string) => void; showBenchmark: boolean; setShowBenchmark: (value: boolean) => void }) {
+  const availableEtfs = snapshot.nationalTeam.etfs.filter((etf) => indexId === 'all' || etf.indexId === indexId);
+  const selectedEtf = availableEtfs.find((etf) => etf.code === etfCode) ?? availableEtfs[0];
+  const benchmarkId = indexId === 'all' ? selectedEtf?.indexId : indexId;
+  const benchmark = snapshot.benchmarks.find((item) => item.id === benchmarkId);
+  const chartData = addNormalizedOverlays(capitalWindow(selectedGroup?.series ?? [], windowSize), [
+    { key: 'etfTrend', series: (selectedEtf?.series ?? []).map((point) => ({ date: point.date, value: point.nav })) },
+    ...(showBenchmark && benchmark ? [{ key: 'benchmarkTrend', series: benchmark.series.map((point) => ({ date: point.date, value: point.close })) }] : []),
+  ]);
   return (
     <div className="capital-body">
       <div className="capital-kpis">
@@ -65,24 +75,26 @@ function NationalTeamView({ snapshot, windowSize, selectedGroup, indexId, setInd
         <CapitalKpi label="近20日估算净申购" value={snapshot.nationalTeam.summaries.day20} />
         <CapitalKpi label="核心 ETF 覆盖" text={`${snapshot.nationalTeam.etfs.length}/12`} />
       </div>
-      <div className="capital-controls"><label><span>指数分组</span><select value={indexId} onChange={(event) => setIndexId(event.target.value)}>{snapshot.nationalTeam.indexGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><span>数据日 {snapshot.nationalTeam.asOf ?? '—'}</span></div>
-      <div className="capital-chart" aria-label={`${selectedGroup?.name ?? ''}资金流趋势`}><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData}><CartesianGrid stroke="rgba(148,163,184,.1)" vertical={false} /><XAxis dataKey="date" minTickGap={34} tickFormatter={shortDate} tick={{ fill: '#7f8f9d', fontSize: 10 }} /><YAxis tick={{ fill: '#7f8f9d', fontSize: 10 }} width={48} /><Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${formatNumber(Number(value))}亿元`, '估算净申购']} labelFormatter={(value) => `交易日 ${value}`} /><ReferenceLine y={0} stroke="#52616d" /><Bar dataKey="netFlowYi" name="估算净申购" fill="#d6aa5c" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>
+      <div className="capital-controls"><div className="capital-control-group"><label><span>指数分组</span><select value={indexId} onChange={(event) => setIndexId(event.target.value)}>{snapshot.nationalTeam.indexGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>叠加 ETF</span><select value={selectedEtf?.code ?? ''} onChange={(event) => setEtfCode(event.target.value)}>{availableEtfs.map((etf) => <option key={etf.code} value={etf.code}>{etf.name} · {etf.code}</option>)}</select></label><label className="capital-toggle"><input type="checkbox" checked={showBenchmark} disabled={!benchmark} onChange={(event) => setShowBenchmark(event.target.checked)} /><span>叠加{benchmark?.name ?? '对应指数'}</span></label></div><span>数据日 {snapshot.nationalTeam.asOf ?? '—'}</span></div>
+      <div className="capital-chart" aria-label={`${selectedGroup?.name ?? ''}资金流与市场走势`}><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData}><CartesianGrid stroke="rgba(148,163,184,.1)" vertical={false} /><XAxis dataKey="date" minTickGap={34} tickFormatter={shortDate} tick={{ fill: '#7f8f9d', fontSize: 10 }} /><YAxis yAxisId="flow" tick={{ fill: '#7f8f9d', fontSize: 10 }} width={48} /><YAxis yAxisId="trend" orientation="right" tick={{ fill: '#7f8f9d', fontSize: 10 }} width={46} domain={['auto', 'auto']} /><Tooltip contentStyle={tooltipStyle} formatter={capitalTooltipFormatter} labelFormatter={(value) => `交易日 ${value}`} /><Legend wrapperStyle={{ fontSize: 11 }} /><ReferenceLine yAxisId="flow" y={0} stroke="#52616d" /><Line yAxisId="flow" type="monotone" dataKey="netFlowYi" name="估算净申购（亿元）" dot={false} connectNulls stroke="#d6aa5c" strokeWidth={1.8} /><Line yAxisId="trend" type="monotone" dataKey="etfTrend" name={`${selectedEtf?.name ?? 'ETF'}（起点=100）`} dot={false} connectNulls stroke="#4fb7aa" strokeWidth={1.7} />{showBenchmark && benchmark ? <Line yAxisId="trend" type="monotone" dataKey="benchmarkTrend" name={`${benchmark.name}（起点=100）`} dot={false} connectNulls stroke="#7aa2f7" strokeWidth={1.6} strokeDasharray="5 3" /> : null}</LineChart></ResponsiveContainer></div>
       <div className="capital-table-wrap"><table className="capital-table"><thead><tr><th>ETF</th><th>跟踪指数</th><th>份额</th><th>份额变化</th><th>估算净申购</th><th>成交额</th><th>数据日</th></tr></thead><tbody>{snapshot.nationalTeam.etfs.map((etf) => <tr key={etf.code}><td><strong>{etf.name}</strong><span>{etf.code}</span></td><td>{etf.indexName}</td><td>{formatShares(etf.shares)}</td><td className={tone(etf.shareChange)}>{formatShares(etf.shareChange)}</td><td className={tone(etf.netFlowYi)}>{formatYi(etf.netFlowYi)}</td><td>{formatYi(etf.amountYi)}</td><td>{etf.asOf ?? '—'}{etf.qualityFlags.length ? <small title={etf.qualityFlags.join(', ')}> 数据提示</small> : null}</td></tr>)}</tbody></table></div>
       <div className="capital-events"><h3>官方增持公告</h3>{snapshot.nationalTeam.events.map((event) => <a key={`${event.date}-${event.title}`} href={event.url} target="_blank" rel="noreferrer"><time>{event.date}</time><div><strong>{event.title}</strong><span>{event.summary}</span></div></a>)}</div>
     </div>
   );
 }
 
-function InstitutionView({ snapshot, windowSize, product, productId, setProductId, memberMode, setMemberMode, member, setMemberName }: { snapshot: LargeCapitalSnapshot; windowSize: number; product: CapitalProduct | undefined; productId: CapitalProduct['id']; setProductId: (id: CapitalProduct['id']) => void; memberMode: MemberMode; setMemberMode: (mode: MemberMode) => void; member: CapitalMember | undefined; setMemberName: (name: string) => void }) {
+function InstitutionView({ snapshot, windowSize, product, productId, setProductId, memberMode, setMemberMode, member, setMemberName, showBenchmark, setShowBenchmark }: { snapshot: LargeCapitalSnapshot; windowSize: number; product: CapitalProduct | undefined; productId: CapitalProduct['id']; setProductId: (id: CapitalProduct['id']) => void; memberMode: MemberMode; setMemberMode: (mode: MemberMode) => void; member: CapitalMember | undefined; setMemberName: (name: string) => void; showBenchmark: boolean; setShowBenchmark: (value: boolean) => void }) {
   const ranking = useMemo(() => sortCapitalMembers(product?.members ?? [], memberMode).slice(0, 20), [product, memberMode]);
   if (!product) return <div className="capital-loading">暂无中金所席位快照</div>;
   const latest = product.latest?.top20;
+  const benchmark = snapshot.benchmarks.find((item) => item.id === product.benchmarkId);
+  const chartData = addNormalizedOverlays(capitalWindow(product.summarySeries, windowSize), showBenchmark && benchmark ? [{ key: 'benchmarkTrend', series: benchmark.series.map((point) => ({ date: point.date, value: point.close })) }] : []);
   return (
     <div className="capital-body">
       <div className="capital-product-tabs">{snapshot.institutions.products.map((item) => <button key={item.id} type="button" className={productId === item.id ? 'active' : ''} onClick={() => setProductId(item.id)}><strong>{item.id}</strong><span>{item.name.replace('股指期货', '')}</span></button>)}</div>
       <div className="capital-kpis"><CapitalKpi label="前20披露持多" text={formatLots(latest?.long)} /><CapitalKpi label="前20披露持空" text={formatLots(latest?.short)} /><CapitalKpi label="前20披露净头寸" text={formatLots(latest?.net)} toneValue={latest?.net} /><CapitalKpi label="披露多空比" text={latest?.longShortRatio?.toFixed(3) ?? '—'} /></div>
-      <div className="capital-controls"><span>合约 {product.contracts.join('、') || '—'}</span><span>数据日 {product.asOf ?? '—'}</span></div>
-      <div className="capital-chart" aria-label={`${product.id}前20席位趋势`}><ResponsiveContainer width="100%" height="100%"><LineChart data={capitalWindow(product.summarySeries, windowSize)}><CartesianGrid stroke="rgba(148,163,184,.1)" vertical={false} /><XAxis dataKey="date" minTickGap={34} tickFormatter={shortDate} tick={{ fill: '#7f8f9d', fontSize: 10 }} /><YAxis tick={{ fill: '#7f8f9d', fontSize: 10 }} width={54} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line type="monotone" dataKey="long" name="披露持多" dot={false} stroke="#d46b73" strokeWidth={1.7} /><Line type="monotone" dataKey="short" name="披露持空" dot={false} stroke="#4fb7aa" strokeWidth={1.7} /></LineChart></ResponsiveContainer></div>
+      <div className="capital-controls"><div className="capital-control-group"><span>合约 {product.contracts.join('、') || '—'}</span><label className="capital-toggle"><input type="checkbox" checked={showBenchmark} disabled={!benchmark} onChange={(event) => setShowBenchmark(event.target.checked)} /><span>叠加{benchmark?.name ?? '对应指数'}</span></label></div><span>数据日 {product.asOf ?? '—'}</span></div>
+      <div className="capital-chart" aria-label={`${product.id}前20席位与对应指数趋势`}><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData}><CartesianGrid stroke="rgba(148,163,184,.1)" vertical={false} /><XAxis dataKey="date" minTickGap={34} tickFormatter={shortDate} tick={{ fill: '#7f8f9d', fontSize: 10 }} /><YAxis yAxisId="positions" tick={{ fill: '#7f8f9d', fontSize: 10 }} width={54} /><YAxis yAxisId="trend" orientation="right" tick={{ fill: '#7f8f9d', fontSize: 10 }} width={46} domain={['auto', 'auto']} hide={!showBenchmark} /><Tooltip contentStyle={tooltipStyle} formatter={capitalTooltipFormatter} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line yAxisId="positions" type="monotone" dataKey="long" name="披露持多（手）" dot={false} stroke="#d46b73" strokeWidth={1.7} /><Line yAxisId="positions" type="monotone" dataKey="short" name="披露持空（手）" dot={false} stroke="#4fb7aa" strokeWidth={1.7} />{showBenchmark && benchmark ? <Line yAxisId="trend" type="monotone" dataKey="benchmarkTrend" name={`${benchmark.name}（起点=100）`} dot={false} connectNulls stroke="#7aa2f7" strokeWidth={1.7} strokeDasharray="5 3" /> : null}</LineChart></ResponsiveContainer></div>
       <div className="capital-institution-grid">
         <section><div className="capital-section-heading"><h3>会员席位排行</h3><select value={memberMode} onChange={(event) => setMemberMode(event.target.value as MemberMode)}><option value="long">持多</option><option value="short">持空</option><option value="netLong">披露净多</option><option value="netShort">披露净空</option></select></div><div className="capital-member-list">{ranking.map((item, index) => <button key={item.name} type="button" className={member?.name === item.name ? 'active' : ''} onClick={() => setMemberName(item.name)}><i>{index + 1}</i><span><strong>{item.name}</strong><small>{memberDisclosure(item)}</small></span><b className={tone(memberValue(item, memberMode))}>{formatLots(memberValue(item, memberMode))}</b></button>)}</div></section>
         <section><div className="capital-section-heading"><h3>{member?.name ?? '会员'} · 披露趋势</h3><span>最多120日</span></div>{member ? <div className="capital-member-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={capitalWindow(member.history, windowSize)}><CartesianGrid stroke="rgba(148,163,184,.1)" vertical={false} /><XAxis dataKey="date" minTickGap={28} tickFormatter={shortDate} tick={{ fill: '#7f8f9d', fontSize: 10 }} /><YAxis tick={{ fill: '#7f8f9d', fontSize: 10 }} width={50} /><Tooltip contentStyle={tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line type="monotone" dataKey="long" name="披露持多" dot={false} stroke="#d46b73" /><Line type="monotone" dataKey="short" name="披露持空" dot={false} stroke="#4fb7aa" /><Line type="monotone" dataKey="net" name="披露净头寸" dot={false} stroke="#d6aa5c" /></LineChart></ResponsiveContainer></div> : <div className="capital-loading">请选择会员席位</div>}</section>
@@ -98,6 +110,7 @@ function formatYi(value: number | null | undefined) { return Number.isFinite(val
 function formatShares(value: number | null | undefined) { return Number.isFinite(value) ? `${(Number(value) / 1e8).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}亿份` : '—'; }
 function formatLots(value: number | null | undefined) { return Number.isFinite(value) ? `${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}手` : '—'; }
 function formatNumber(value: number) { return Number.isFinite(value) ? value.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—'; }
+function capitalTooltipFormatter(value: unknown, name: string | number | undefined): [string, string] { return [formatNumber(Number(value)), String(name ?? '')]; }
 function shortDate(value: string) { return value?.slice(5) ?? value; }
 function tone(value: number | null | undefined) { return !Number.isFinite(value) || value === 0 ? '' : Number(value) > 0 ? 'is-positive' : 'is-negative'; }
 const tooltipStyle = { background: '#101820', border: '1px solid #273542', borderRadius: 6, color: '#dbe5ee', fontSize: 11 };

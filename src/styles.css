@@ -1112,6 +1112,10 @@ h2 {
 .capital-tool .is-negative { color: #4fb7aa !important; }
 .capital-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px; color: #82939e; font-size: 10px; }
 .capital-controls label { display: grid; gap: 5px; }
+.capital-control-group { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.capital-controls .capital-toggle { display: flex; flex-direction: row; align-items: center; gap: 6px; min-height: 30px; padding: 0 2px; color: #aab8c0; cursor: pointer; }
+.capital-toggle input { accent-color: #d6aa5c; }
+.capital-toggle:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 .capital-controls select,
 .capital-section-heading select { border: 1px solid rgba(148,163,184,.18); border-radius: 6px; padding: 7px 9px; color: #c8d2d8; background: #0b1720; }
 .capital-chart { height: 290px; padding: 8px 4px 2px; border: 1px solid rgba(148,163,184,.1); border-radius: 8px; background: rgba(7,18,25,.45); }

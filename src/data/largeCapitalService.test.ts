@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capitalWindow, fetchLargeCapitalSnapshot, sortCapitalMembers, type CapitalMember } from './largeCapitalService';
+import { addNormalizedOverlays, capitalWindow, fetchLargeCapitalSnapshot, sortCapitalMembers, type CapitalMember } from './largeCapitalService';
 
 describe('large capital service', () => {
   it('loads the deployed snapshot endpoint', async () => {
@@ -18,5 +18,13 @@ describe('large capital service', () => {
     ] as CapitalMember[];
     expect(sortCapitalMembers(members, 'netLong')[0].name).toBe('甲');
     expect(sortCapitalMembers(members, 'netShort')[0].name).toBe('乙');
+  });
+
+  it('normalizes ETF and index overlays to the first common visible day', () => {
+    const result = addNormalizedOverlays(
+      [{ date: '2026-04-01', net: 1 }, { date: '2026-04-02', net: 2 }, { date: '2026-04-03', net: 3 }],
+      [{ key: 'trend', series: [{ date: '2026-04-02', value: 200 }, { date: '2026-04-03', value: 210 }] }],
+    );
+    expect(result.map((point) => point.trend)).toEqual([null, 100, 105]);
   });
 });
