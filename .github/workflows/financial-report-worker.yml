@@ -11,10 +11,14 @@ on:
       - server/financial-report-worker.mjs
       - server/sentiment-metrics.mjs
       - server/sentiment-seed.mjs
+      - server/large-capital-metrics.mjs
+      - server/large-capital-seed.mjs
       - scripts/build-sentiment-seed.mjs
       - scripts/enrich-sentiment-seed.mjs
       - scripts/validate-sentiment-freshness.mjs
       - scripts/sentiment-taxonomy.mjs
+      - scripts/build-large-capital-seed.mjs
+      - scripts/validate-large-capital-freshness.mjs
       - wrangler.toml
       - package.json
       - package-lock.json
@@ -48,6 +52,10 @@ jobs:
           fi
       - name: Reject stale sentiment snapshot
         run: npm run sentiment:validate
+      - name: Refresh large capital snapshot
+        run: npm run capital:seed
+      - name: Reject stale large capital snapshot
+        run: npm run capital:validate
       - name: Deploy Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

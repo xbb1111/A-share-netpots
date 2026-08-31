@@ -16,6 +16,7 @@ import {
   Factory,
   FileSearch,
   LineChart,
+  Landmark,
   Plus,
   RefreshCw,
   Search,
@@ -48,6 +49,7 @@ import { SectionHeader } from './components/SectionHeader';
 import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
 import { SentimentIndicatorPanel } from './components/SentimentIndicatorPanel';
+import { LargeCapitalFlowPanel } from './components/LargeCapitalFlowPanel';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -2291,6 +2293,7 @@ function ToolboxPage() {
   const [isFinancialReportToolOpen, setIsFinancialReportToolOpen] = useState(false);
   const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(route.tool === 'index');
   const [isSentimentToolOpen, setIsSentimentToolOpen] = useState(route.tool === 'sentiment');
+  const [isCapitalToolOpen, setIsCapitalToolOpen] = useState(route.tool === 'capital');
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -2299,6 +2302,7 @@ function ToolboxPage() {
       if (next.tool === 'price') setIsPriceToolOpen(true);
       if (next.tool === 'index') setIsCustomIndexToolOpen(true);
       if (next.tool === 'sentiment') setIsSentimentToolOpen(true);
+      if (next.tool === 'capital') setIsCapitalToolOpen(true);
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -2347,6 +2351,21 @@ function ToolboxPage() {
       </div>
 
       <div className="tool-grid">
+        <article className="tool-card tool-card--builtin">
+          <button
+            className="tool-card__launch"
+            type="button"
+            onClick={() => setIsCapitalToolOpen((current) => !current)}
+            aria-expanded={isCapitalToolOpen}
+          >
+            <div>
+              <strong>大资金动向</strong>
+              <span>内置工具 · 核心宽基 ETF 与期指会员席位</span>
+            </div>
+            <Landmark size={18} aria-hidden="true" />
+          </button>
+        </article>
+
         <article className="tool-card tool-card--builtin">
           <button
             className="tool-card__launch"
@@ -2424,6 +2443,7 @@ function ToolboxPage() {
       {isFinancialReportToolOpen ? <FinancialReportPanel /> : null}
       {isCustomIndexToolOpen ? <CustomIndexToolPanel previewId={route.previewId} /> : null}
       {isSentimentToolOpen ? <SentimentIndicatorPanel /> : null}
+      {isCapitalToolOpen ? <LargeCapitalFlowPanel /> : null}
     </section>
   );
 }

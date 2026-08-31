@@ -9,6 +9,15 @@ import {
 } from './financial-report-api.mjs';
 
 describe('financial-report-api helpers', () => {
+  it('serves the large-capital snapshot schema with explicit source labels', async () => {
+    const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/large-capital-flows'));
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload).toHaveProperty('nationalTeam.disclaimer');
+    expect(payload).toHaveProperty('institutions.disclaimer');
+    expect(payload.nationalTeam.disclaimer).toContain('不能直接认定');
+  });
+
   it('serves six independent sentiment indicators with aligned history', async () => {
     const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/market-sentiment?refresh=1'));
     const payload = await response.json();

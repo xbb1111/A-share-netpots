@@ -14,6 +14,10 @@ describe('toolbox route', () => {
     expect(parseToolboxRoute('#toolbox?tool=sentiment')).toEqual({ tool: 'sentiment', previewId: null });
   });
 
+  it('parses the large capital flow tool route', () => {
+    expect(parseToolboxRoute('#toolbox?tool=capital')).toEqual({ tool: 'capital', previewId: null });
+  });
+
   it('ignores tool parameters outside the toolbox page', () => {
     expect(parseToolboxRoute('#industries?tool=index&preview=old')).toEqual({ tool: null, previewId: null });
   });

@@ -8,6 +8,8 @@
     "sentiment:seed": "node scripts/build-sentiment-seed.mjs",
     "sentiment:enrich": "node scripts/enrich-sentiment-seed.mjs",
     "sentiment:validate": "node scripts/validate-sentiment-freshness.mjs",
+    "capital:seed": "node scripts/build-large-capital-seed.mjs",
+    "capital:validate": "node scripts/validate-large-capital-freshness.mjs",
     "worker:dev": "npx wrangler dev",
     "worker:deploy": "npx wrangler deploy",
     "dev": "vite --host 0.0.0.0",
@@ -17,16 +19,17 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.3.0",
-    "typescript": "^5.9.3",
+    "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "lucide-react": "^0.562.0",
-    "recharts": "^3.6.0"
+    "recharts": "^3.6.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "exceljs": "^4.4.0",
     "vitest": "^4.0.16"
   }
 }

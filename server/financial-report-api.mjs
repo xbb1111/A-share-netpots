@@ -1,5 +1,7 @@
 import { buildSentimentPayload } from './sentiment-metrics.mjs';
 import { SENTIMENT_SEED_META, SENTIMENT_SEED_ROWS } from './sentiment-seed.mjs';
+import { withLargeCapitalFreshness } from './large-capital-metrics.mjs';
+import { LARGE_CAPITAL_SEED } from './large-capital-seed.mjs';
 
 const EASTMONEY_TOKEN = 'D43BF722C8E33A6';
 const CNINFO_REPORT_CATEGORIES = [
@@ -53,6 +55,7 @@ export async function handleFinancialReportRequest(request) {
           '/api/securities/search?q=603929',
           '/api/filings?code=603929&type=all',
           '/api/market-sentiment',
+          '/api/large-capital-flows',
           'POST /api/filings/analyze',
         ],
         note: '8787 是后端 API 端口，正式工具界面请打开 frontend 地址。',
@@ -99,6 +102,10 @@ export async function handleFinancialReportRequest(request) {
 
     if (request.method === 'GET' && url.pathname === '/api/market-sentiment') {
       return jsonResponse(getMarketSentiment());
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/large-capital-flows') {
+      return jsonResponse(withLargeCapitalFreshness(LARGE_CAPITAL_SEED));
     }
 
     if (request.method === 'GET' && url.pathname === '/api/security-metrics') {
