@@ -61,4 +61,9 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npm run worker:deploy
+        run: |
+          npm run worker:deploy || {
+            echo "::warning::Cloudflare deploy returned a transient error; retrying once in 15 seconds."
+            sleep 15
+            npm run worker:deploy
+          }

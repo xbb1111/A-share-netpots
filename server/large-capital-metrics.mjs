@@ -39,7 +39,7 @@ export const LARGE_CAPITAL_EVENTS = [
   },
 ];
 
-const numberOrNull = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+const numberOrNull = (value) => value === null || value === undefined || value === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 4) => Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
 
 export function normalizeMemberName(value) {
@@ -178,8 +178,10 @@ function processEtf(raw) {
   const meta = LARGE_CAPITAL_ETFS.find((item) => item.code === raw.code) ?? raw;
   const sorted = [...(raw.series ?? [])].sort((a, b) => a.date.localeCompare(b.date)).slice(-253);
   const series = sorted.map((point, index) => {
-    const nav = numberOrNull(point.nav);
-    const shares = numberOrNull(point.shares);
+    const rawNav = numberOrNull(point.nav);
+    const rawShares = numberOrNull(point.shares);
+    const nav = rawNav !== null && rawNav > 0 ? rawNav : null;
+    const shares = rawShares !== null && rawShares > 0 ? rawShares : null;
     const previous = sorted[index - 1];
     const previousShares = numberOrNull(previous?.shares);
     const previousNav = numberOrNull(previous?.nav);
@@ -192,6 +194,7 @@ function processEtf(raw) {
     const qualityFlags = [
       ...(nav === null ? ['missing-nav'] : []),
       ...(shares === null ? ['missing-shares'] : []),
+      ...(numberOrNull(point.amount) === null ? ['missing-amount'] : []),
       ...(splitSuspect ? ['split-suspect'] : []),
     ];
     return {

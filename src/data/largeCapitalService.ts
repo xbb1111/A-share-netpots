@@ -36,8 +36,9 @@ export type LargeCapitalSnapshot = {
 
 type Fetcher = (input: string) => Promise<Pick<Response, 'ok' | 'json'>>;
 
-export async function fetchLargeCapitalSnapshot(fetcher: Fetcher = fetch): Promise<LargeCapitalSnapshot> {
-  const response = await fetcher(buildFinancialApiUrl('/api/large-capital-flows'));
+export async function fetchLargeCapitalSnapshot(fetcher: Fetcher = fetch, force = false): Promise<LargeCapitalSnapshot> {
+  const suffix = force ? `?refresh=${Date.now()}` : '';
+  const response = await fetcher(buildFinancialApiUrl(`/api/large-capital-flows${suffix}`));
   const payload = await response.json().catch(() => ({})) as Partial<LargeCapitalSnapshot> & { message?: string };
   if (!response.ok) throw new Error(payload.message ?? '大资金动向数据暂时不可用');
   if (!('nationalTeam' in payload) || !('institutions' in payload)) throw new Error('大资金动向数据结构不完整');

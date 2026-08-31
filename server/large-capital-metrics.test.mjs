@@ -35,6 +35,16 @@ describe('large capital metrics', () => {
     expect(snapshot.benchmarks[0]).toMatchObject({ id: 'csi300', name: '沪深300', code: '000300' });
   });
 
+  it('keeps missing shares and amounts null instead of coercing them to zero', () => {
+    const snapshot = buildLargeCapitalSnapshot({
+      generatedAt: '2026-04-02T10:00:00.000Z',
+      etfs: [{ code: '510300', series: [{ date: '2026-04-01', nav: 4, shares: 100_000_000 }, { date: '2026-04-02', nav: 4.1, shares: null, amount: null }] }],
+    });
+    const latest = snapshot.nationalTeam.etfs[0].series.at(-1);
+    expect(latest).toMatchObject({ shares: null, shareChange: null, netFlowYi: null, amountYi: null });
+    expect(latest.qualityFlags).toContain('missing-shares');
+  });
+
   it('caps ETF/product history at 252 days and member history at 120 days', () => {
     const dates = Array.from({ length: 280 }, (_, index) => `2025-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`);
     const institutionDays = dates.map((date) => aggregateCffexDay([{ rank: 1, contract: 'IF9999', longMember: '甲席位', long: 10, longChange: 1, shortMember: '乙席位', short: 9, shortChange: 0 }], 'IF', date));

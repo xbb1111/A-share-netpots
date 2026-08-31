@@ -1,10 +1,16 @@
 import { writeFile } from 'node:fs/promises';
+import { setDefaultResultOrder } from 'node:dns';
 import ExcelJS from 'exceljs';
 import { LARGE_CAPITAL_BENCHMARKS, LARGE_CAPITAL_ETFS, aggregateCffexDay, buildLargeCapitalSnapshot, parseCffexCsv } from '../server/large-capital-metrics.mjs';
+import { LARGE_CAPITAL_SEED } from '../server/large-capital-seed.mjs';
 
 const OUTPUT = new URL('../server/large-capital-seed.mjs', import.meta.url);
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132 Safari/537.36';
 const PRODUCTS = ['IF', 'IH', 'IC', 'IM'];
+
+setDefaultResultOrder('ipv4first');
+const previousEtfByCode = new Map((LARGE_CAPITAL_SEED.nationalTeam?.etfs ?? []).map((etf) => [etf.code, etf]));
+const previousBenchmarkById = new Map((LARGE_CAPITAL_SEED.benchmarks ?? []).map((benchmark) => [benchmark.id, benchmark]));
 
 const end = new Date();
 const start = new Date(end.getTime() - 520 * 86400000);
@@ -12,14 +18,14 @@ const startDate = isoDate(start);
 const endDate = isoDate(end);
 
 console.log(`Building large-capital snapshot ${startDate}..${endDate}`);
-const navByCode = new Map(await mapLimit(LARGE_CAPITAL_ETFS, 4, async (etf) => [etf.code, await fetchNav(etf.code, startDate, endDate)]));
+const navByCode = new Map(await mapLimit(LARGE_CAPITAL_ETFS, 4, async (etf) => [etf.code, await safeSource(`NAV ${etf.code}`, () => fetchNav(etf.code, startDate, endDate), previousEtfSeries(etf.code, (point) => ({ date: point.date, nav: point.nav })))]));
 const referenceDates = [...new Set((navByCode.get('510300') ?? []).map((point) => point.date))].sort().slice(-253);
 if (referenceDates.length < 20) throw new Error('ETF NAV source returned too little history');
 
 const sseShares = await fetchSseShares(referenceDates);
 const szseShares = await fetchSzseShares(referenceDates[0], referenceDates.at(-1));
-const amountByCode = new Map(await mapLimit(LARGE_CAPITAL_ETFS, 4, async (etf) => [etf.code, await fetchAmounts(etf.code, 320)]));
-const benchmarks = await mapLimit(LARGE_CAPITAL_BENCHMARKS, 4, async (benchmark) => ({ ...benchmark, series: await fetchBenchmark(benchmark.secid, 320) }));
+const amountByCode = new Map(await mapLimit(LARGE_CAPITAL_ETFS, 4, async (etf) => [etf.code, await safeSource(`amount ${etf.code}`, () => fetchAmounts(etf.code, 320), new Map(previousEtfSeries(etf.code, (point) => [point.date, Number.isFinite(point.amountYi) ? point.amountYi * 1e8 : null]).filter(([, amount]) => Number(amount) > 0)))]));
+const benchmarks = await mapLimit(LARGE_CAPITAL_BENCHMARKS, 4, async (benchmark) => ({ ...benchmark, series: await safeSource(`benchmark ${benchmark.code}`, () => fetchBenchmark(benchmark.secid, 320), previousBenchmarkById.get(benchmark.id)?.series ?? []) }));
 
 const etfs = LARGE_CAPITAL_ETFS.map((etf) => {
   const shares = etf.exchange === 'SSE' ? sseShares : szseShares;
@@ -56,35 +62,39 @@ async function fetchNav(code, startValue, endValue) {
 
 async function fetchSseShares(dates) {
   const codes = new Set(LARGE_CAPITAL_ETFS.filter((item) => item.exchange === 'SSE').map((item) => item.code));
-  const result = new Map([...codes].map((code) => [code, new Map()]));
+  const result = new Map([...codes].map((code) => [code, new Map(previousEtfSeries(code, (point) => [point.date, point.shares]).filter(([, shares]) => Number(shares) > 0))]));
   await mapLimit(dates, 6, async (date) => {
-    const url = new URL('https://query.sse.com.cn/commonQuery.do');
-    Object.entries({ isPagination: 'true', 'pageHelp.pageSize': '10000', 'pageHelp.pageNo': '1', 'pageHelp.beginPage': '1', 'pageHelp.cacheSize': '1', 'pageHelp.endPage': '1', sqlId: 'COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L', STAT_DATE: date }).forEach(([key, value]) => url.searchParams.set(key, value));
-    const payload = await fetchJson(url, { referer: 'https://www.sse.com.cn/' });
-    for (const row of payload.result ?? payload.pageHelp?.data ?? []) {
-      if (codes.has(row.SEC_CODE) && finite(row.TOT_VOL) !== null) result.get(row.SEC_CODE).set(date, finite(row.TOT_VOL) * 10000);
-    }
+    try {
+      const url = new URL('https://query.sse.com.cn/commonQuery.do');
+      Object.entries({ isPagination: 'true', 'pageHelp.pageSize': '10000', 'pageHelp.pageNo': '1', 'pageHelp.beginPage': '1', 'pageHelp.cacheSize': '1', 'pageHelp.endPage': '1', sqlId: 'COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L', STAT_DATE: date }).forEach(([key, value]) => url.searchParams.set(key, value));
+      const payload = await fetchJson(url, { referer: 'https://www.sse.com.cn/' });
+      for (const row of payload.result ?? payload.pageHelp?.data ?? []) {
+        if (codes.has(row.SEC_CODE) && finite(row.TOT_VOL) > 0) result.get(row.SEC_CODE).set(date, finite(row.TOT_VOL) * 10000);
+      }
+    } catch (error) { console.warn(`SSE shares ${date}: ${error instanceof Error ? error.message : error}`); }
   });
   return result;
 }
 
 async function fetchSzseShares(firstDate, lastDate) {
   const codes = new Set(LARGE_CAPITAL_ETFS.filter((item) => item.exchange === 'SZSE').map((item) => item.code));
-  const result = new Map([...codes].map((code) => [code, new Map()]));
+  const result = new Map([...codes].map((code) => [code, new Map(previousEtfSeries(code, (point) => [point.date, point.shares]).filter(([, shares]) => Number(shares) > 0))]));
   for (const [chunkStart, chunkEnd] of dateChunks(firstDate, lastDate, 175)) {
-    const url = new URL('https://www.szse.cn/api/report/ShowReport');
-    Object.entries({ SHOWTYPE: 'xlsx', CATALOGID: 'scsj_fund_jjgm', TABKEY: 'tab1', txtStart: chunkStart, txtEnd: chunkEnd, jjlb: 'ETF', random: String(Math.random()) }).forEach(([key, value]) => url.searchParams.set(key, value));
-    const response = await fetchWithRetry(url, { headers: requestHeaders('https://www.szse.cn/market/fund/volume/etf/index.html') });
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(await response.arrayBuffer());
-    const sheet = workbook.worksheets[0];
-    sheet.eachRow((row, number) => {
-      if (number === 1) return;
-      const date = normalizeExcelDate(row.getCell(1).value);
-      const code = String(row.getCell(2).text ?? '').padStart(6, '0');
-      const shares = finite(String(row.getCell(4).text ?? '').replaceAll(',', ''));
-      if (date && codes.has(code) && shares !== null) result.get(code).set(date, shares);
-    });
+    try {
+      const url = new URL('https://www.szse.cn/api/report/ShowReport');
+      Object.entries({ SHOWTYPE: 'xlsx', CATALOGID: 'scsj_fund_jjgm', TABKEY: 'tab1', txtStart: chunkStart, txtEnd: chunkEnd, jjlb: 'ETF', random: String(Math.random()) }).forEach(([key, value]) => url.searchParams.set(key, value));
+      const response = await fetchWithRetry(url, { headers: requestHeaders('https://www.szse.cn/market/fund/volume/etf/index.html') });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await response.arrayBuffer());
+      const sheet = workbook.worksheets[0];
+      sheet.eachRow((row, number) => {
+        if (number === 1) return;
+        const date = normalizeExcelDate(row.getCell(1).value);
+        const code = String(row.getCell(2).text ?? '').trim().padStart(6, '0');
+        const shares = finite(String(row.getCell(4).text ?? '').replaceAll(',', ''));
+        if (date && codes.has(code) && shares > 0) result.get(code).set(date, shares);
+      });
+    } catch (error) { console.warn(`SZSE shares ${chunkStart}..${chunkEnd}: ${error instanceof Error ? error.message : error}`); }
   }
   return result;
 }
@@ -157,6 +167,15 @@ async function mapLimit(items, concurrency, mapper) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
   return output;
+}
+
+async function safeSource(label, task, fallback) {
+  try { return await task(); }
+  catch (error) { console.warn(`${label}: ${error instanceof Error ? error.message : error}`); return fallback; }
+}
+
+function previousEtfSeries(code, mapper) {
+  return (previousEtfByCode.get(code)?.series ?? []).map(mapper).filter((value) => Array.isArray(value) ? value[1] !== null : value.nav !== null);
 }
 
 function requestHeaders(referer) { return { 'user-agent': USER_AGENT, ...(referer ? { referer } : {}) }; }

@@ -10,6 +10,13 @@ describe('large capital service', () => {
     expect(result.asOf).toBe('2026-04-01');
   });
 
+  it('cache-busts an explicit latest-snapshot check', async () => {
+    const urls: string[] = [];
+    const payload = { version: 1, asOf: '2026-04-01', updatedAt: 'now', stale: false, status: '中性', methodology: 'test', nationalTeam: {}, institutions: {} };
+    await fetchLargeCapitalSnapshot(async (url) => { urls.push(url); return { ok: true, json: async () => payload }; }, true);
+    expect(urls[0]).toMatch(/\/api\/large-capital-flows\?refresh=\d+/);
+  });
+
   it('limits chart windows and ranks disclosed member positions', () => {
     expect(capitalWindow([1, 2, 3, 4], 2)).toEqual([3, 4]);
     const members = [
