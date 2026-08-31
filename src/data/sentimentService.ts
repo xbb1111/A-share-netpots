@@ -30,6 +30,8 @@ export type SentimentTheme = { name: string; amountYi: number };
 
 export type SentimentSnapshot = {
   commonAsOf: string | null;
+  marketAsOf: string | null;
+  dataLagTradingDays: number;
   updatedAt: string;
   stale: boolean;
   industryClassification: string | null;

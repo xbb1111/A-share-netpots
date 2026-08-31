@@ -6,15 +6,20 @@ import { chinaDateFromUnix, getIndustryMappingProfile, selectTopicalThemes, toLe
 const EASTMONEY_TOKEN = 'bd1d9ddb04089700cf9c27f6f7426281';
 const UNIVERSE = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048';
 const HISTORY_DAYS = 285;
+const TARGET_DAYS = 252;
 const CONCURRENCY = 36;
 const MINIMUM_COVERAGE = 0.8;
 
-const targetDates = SENTIMENT_SEED_ROWS.map((row) => row.date);
+console.log('loading independent market calendar');
+const indexHistory = await fetchTencentIndexHistory();
+const targetDates = indexHistory.map((row) => row.date).slice(-TARGET_DAYS);
 const targetSet = new Set(targetDates);
 const aggregates = new Map(targetDates.map((date) => [date, createAggregate()]));
+const existingByDate = new Map(SENTIMENT_SEED_ROWS.map((row) => [row.date, row]));
 
 console.log('loading current stock universe and themes');
 const [metadata, themeSnapshot] = await Promise.all([fetchStockUniverse(), fetchThemeSnapshot()]);
+const metadataByCode = new Map(metadata.map((stock) => [stock.code, stock]));
 const mappingProfile = getIndustryMappingProfile(metadata.map((stock) => stock.industryLevelTwo));
 if (mappingProfile.coverage < 0.98 || mappingProfile.unmapped.length) {
   throw new Error(`insufficient SW level-one mapping coverage: ${(mappingProfile.coverage * 100).toFixed(2)}%; unmapped ${mappingProfile.unmapped.join(', ')}`);
@@ -26,6 +31,10 @@ await concurrentMap(metadata, CONCURRENCY, async (stock) => {
     const row = rows[index];
     if (!targetSet.has(row.date)) continue;
     const aggregate = aggregates.get(row.date);
+    if (Number.isFinite(row.turnover) && Number.isFinite(row.freeMarketCap) && row.freeMarketCap > 0) {
+      aggregate.turnoverWeighted += row.turnover * row.freeMarketCap;
+      aggregate.turnoverWeight += row.freeMarketCap;
+    }
     if (Number.isFinite(row.amount) && row.amount >= 0) {
       aggregate.totalAmount += row.amount;
       if (stock.industry) aggregate.industryAmounts.set(stock.industry, (aggregate.industryAmounts.get(stock.industry) ?? 0) + row.amount);
@@ -67,38 +76,62 @@ if (coveredDates.length < 200 || coveredDates.at(-1) !== targetDates.at(-1)) {
 const commonAsOf = targetDates.at(-1);
 const currentAggregate = aggregates.get(commonAsOf);
 const coveredDateSet = new Set(coveredDates);
+const [marginRows, yieldRows, indexMeta] = await Promise.all([
+  fetchMarginHistory(),
+  fetchYieldHistory(targetDates[0], targetDates.at(-1)),
+  fetchIndexMeta(),
+]);
+const marginByDate = new Map(marginRows.map((row) => [row.date, row.rzmre]));
+const yieldByDate = new Map(yieldRows.map((row) => [row.date, row.tenYear]));
+const indexByDate = new Map(indexHistory.map((row) => [row.date, row]));
+const currentIndex = indexHistory.at(-1);
 
-const enrichedRows = SENTIMENT_SEED_ROWS.map((row) => {
-  const aggregate = aggregates.get(row.date);
-  if (!coveredDateSet.has(row.date)) return row;
+const enrichedRows = targetDates.map((date) => {
+  const previous = existingByDate.get(date);
+  const aggregate = aggregates.get(date);
+  if (!coveredDateSet.has(date)) return previous;
+  const index = indexByDate.get(date);
+  const marginBuyAmount = marginByDate.get(date);
+  const yield10y = nearestOnOrBefore(yieldByDate, date);
+  const estimatedPe = indexMeta.peDynamic * (index.close / currentIndex.close);
   return {
-    ...row,
+    ...previous,
+    date,
+    turnover: Number.isFinite(previous?.turnover) ? previous.turnover : round(aggregate.turnoverWeighted / aggregate.turnoverWeight, 4),
     risingShare: round((aggregate.rising / aggregate.risingValid) * 100, 4),
     rising0To5Share: round((aggregate.rising0To5 / aggregate.risingValid) * 100, 4),
     rising5To10Share: round((aggregate.rising5To10 / aggregate.risingValid) * 100, 4),
     risingAbove10Share: round((aggregate.risingAbove10 / aggregate.risingValid) * 100, 4),
     aboveMa20Share: round((aggregate.aboveMa20 / aggregate.ma20Valid) * 100, 4),
+    marginBuyShare: Number.isFinite(previous?.marginBuyShare) ? previous.marginBuyShare : round((marginBuyAmount / aggregate.totalAmount) * 100, 4),
+    erp: Number.isFinite(previous?.erp) ? previous.erp : round((100 / estimatedPe) - yield10y, 4),
     ...buildIndustryBreakdown(aggregate),
   };
-});
+}).filter((row) => row && ['turnover', 'top3IndustryShare', 'totalAmountYi', 'risingShare', 'rising0To5Share', 'rising5To10Share', 'risingAbove10Share', 'aboveMa20Share', 'marginBuyShare', 'erp'].every((key) => Number.isFinite(row[key])));
+
+const alignedAsOf = enrichedRows.at(-1)?.date;
+if (!alignedAsOf) throw new Error('no fully aligned sentiment row was generated');
+const dataLagTradingDays = Math.max(0, targetDates.length - 1 - targetDates.indexOf(alignedAsOf));
 
 const meta = {
   ...SENTIMENT_SEED_META,
   generatedAt: new Date().toISOString(),
   universeSize: metadata.length,
-  commonAsOf,
+  commonAsOf: alignedAsOf,
+  marketAsOf: commonAsOf,
+  dataLagTradingDays,
   industryClassification: '申万一级（由东方财富申万二级标签映射）',
   industryMappingCoverage: round(mappingProfile.coverage * 100, 2),
   themeAsOf: themeSnapshot.asOf,
   topThemes: themeSnapshot.items,
-  note: '公开数据代理口径；行业成交额按申万一级互斥归类，主题榜独立展示且不计入占比；东方财富主路径不可用时，涨幅分档与 MA20 使用腾讯历史行情回填。',
+  note: '公开数据代理口径；行业成交额按申万一级互斥归类，主题榜独立展示且不计入占比；东方财富主路径不可用时，行情广度、MA20、成交集中度与换手率使用腾讯历史行情回填。',
 };
 const output = `// Generated by sentiment seed scripts from public market sources.\nexport const SENTIMENT_SEED_ROWS = ${JSON.stringify(enrichedRows)};\nexport const SENTIMENT_SEED_META = ${JSON.stringify(meta)};\n`;
 await writeFile(resolve('server/sentiment-seed.mjs'), output, 'utf8');
-console.log(`enriched ${coveredDates.length}/${enrichedRows.length} covered dates; common date ${commonAsOf}; industries ${currentAggregate.industryAmounts.size}`);
+console.log(`enriched ${coveredDates.length}/${targetDates.length} covered dates; aligned date ${alignedAsOf}; market date ${commonAsOf}; industries ${currentAggregate.industryAmounts.size}`);
 
 function createAggregate() {
-  return { rising: 0, rising0To5: 0, rising5To10: 0, risingAbove10: 0, risingValid: 0, aboveMa20: 0, ma20Valid: 0, totalAmount: 0, industryAmounts: new Map() };
+  return { turnoverWeighted: 0, turnoverWeight: 0, rising: 0, rising0To5: 0, rising5To10: 0, risingAbove10: 0, risingValid: 0, aboveMa20: 0, ma20Valid: 0, totalAmount: 0, industryAmounts: new Map() };
 }
 
 function buildIndustryBreakdown(aggregate) {
@@ -127,6 +160,8 @@ async function fetchStockUniverse() {
       code: String(row.f12),
       industryLevelTwo: String(row.f100 ?? '').trim(),
       industry: toLevelOneIndustry(row.f100),
+      currentPrice: number(row.f2),
+      freeMarketCap: number(row.f21),
     }));
 }
 
@@ -150,7 +185,7 @@ async function fetchThemePage(page) {
 
 async function fetchStockPage(page) {
   const url = new URL('https://push2delay.eastmoney.com/api/qt/clist/get');
-  setParams(url, { pn: page, pz: 100, po: 1, np: 1, ut: EASTMONEY_TOKEN, fltt: 2, invt: 2, fid: 'f20', fs: UNIVERSE, fields: 'f12,f14,f100' });
+  setParams(url, { pn: page, pz: 100, po: 1, np: 1, ut: EASTMONEY_TOKEN, fltt: 2, invt: 2, fid: 'f20', fs: UNIVERSE, fields: 'f2,f12,f14,f21,f100' });
   const payload = await fetchJson(url, 3);
   return { total: payload.data?.total ?? 0, rows: payload.data?.diff ?? [] };
 }
@@ -164,12 +199,68 @@ async function fetchTencentHistory(code) {
   const security = payload.data?.[symbol] ?? {};
   const rows = security.qfqday ?? security.day ?? [];
   const volumeMultiplier = code.startsWith('688') ? 1 : 100;
+  const stock = metadataByCode.get(code);
+  const freeFloatShares = Number.isFinite(stock?.freeMarketCap) && Number.isFinite(stock?.currentPrice) && stock.currentPrice > 0
+    ? stock.freeMarketCap / stock.currentPrice
+    : null;
   return rows.map((row) => {
     const prices = [number(row[1]), number(row[2]), number(row[3]), number(row[4])].filter(Number.isFinite);
     const volumeUnits = number(row[5]);
     const averagePrice = prices.length ? prices.reduce((sum, value) => sum + value, 0) / prices.length : null;
-    return { date: String(row[0]), close: number(row[2]), amount: Number.isFinite(averagePrice) && Number.isFinite(volumeUnits) ? averagePrice * volumeUnits * volumeMultiplier : null };
+    const close = number(row[2]);
+    const volumeShares = Number.isFinite(volumeUnits) ? volumeUnits * volumeMultiplier : null;
+    return {
+      date: String(row[0]),
+      close,
+      amount: Number.isFinite(averagePrice) && Number.isFinite(volumeShares) ? averagePrice * volumeShares : null,
+      turnover: Number.isFinite(volumeShares) && Number.isFinite(freeFloatShares) && freeFloatShares > 0 ? (volumeShares / freeFloatShares) * 100 : null,
+      freeMarketCap: Number.isFinite(freeFloatShares) && Number.isFinite(close) ? freeFloatShares * close : null,
+    };
   });
+}
+
+async function fetchTencentIndexHistory() {
+  const symbol = 'sz399317';
+  const url = new URL('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get');
+  url.searchParams.set('param', `${symbol},day,,,${HISTORY_DAYS},qfq`);
+  const payload = await fetchJson(url, 3);
+  const security = payload.data?.[symbol] ?? {};
+  const rows = security.qfqday ?? security.day ?? [];
+  const history = rows.map((row) => ({ date: String(row[0]), close: number(row[2]) })).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close));
+  if (history.length < TARGET_DAYS) throw new Error(`insufficient independent market calendar: ${history.length} dates`);
+  return history;
+}
+
+async function fetchIndexMeta() {
+  const payload = await fetchJson('https://www.cnindex.com.cn/index/indexList?channelCode=205&rows=20&pageNum=1');
+  const row = payload.data?.rows?.find((item) => item.indexcode === '399317');
+  if (!Number.isFinite(number(row?.peDynamic))) throw new Error('CNI A-share PE unavailable');
+  return { peDynamic: number(row.peDynamic) };
+}
+
+async function fetchMarginHistory() {
+  const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
+  setParams(url, { reportName: 'RPTA_RZRQ_LSHJ', columns: 'DIM_DATE,RZMRE', source: 'WEB', pageNumber: 1, pageSize: 500, sortColumns: 'dim_date', sortTypes: -1 });
+  const payload = await fetchJson(url, 3);
+  return (payload.result?.data ?? []).map((row) => ({ date: String(row.DIM_DATE).slice(0, 10), rzmre: number(row.RZMRE) })).filter((row) => Number.isFinite(row.rzmre));
+}
+
+async function fetchYieldHistory(startDate, endDate) {
+  const rows = [];
+  for (let page = 1; page <= 3; page += 1) {
+    const url = new URL('https://datacenter.eastmoney.com/api/data/get');
+    setParams(url, { type: 'RPTA_WEB_TREASURYYIELD', sty: 'ALL', st: 'SOLAR_DATE', sr: -1, token: '894050c76af8597a853f5b408b759f5d', p: page, ps: 500, pageNo: page, pageNum: page });
+    const payload = await fetchJson(url, 3);
+    const pageRows = payload.result?.data ?? [];
+    rows.push(...pageRows);
+    if (pageRows.some((row) => String(row.SOLAR_DATE).slice(0, 10) <= startDate) || pageRows.length < 500) break;
+  }
+  return rows.map((row) => ({ date: String(row.SOLAR_DATE).slice(0, 10), tenYear: number(row.EMM00166466) })).filter((row) => row.date >= startDate && row.date <= endDate && Number.isFinite(row.tenYear));
+}
+
+function nearestOnOrBefore(map, date) {
+  const key = [...map.keys()].filter((item) => item <= date).sort().at(-1);
+  return key ? map.get(key) : null;
 }
 
 async function fetchJson(input, retries = 1) {

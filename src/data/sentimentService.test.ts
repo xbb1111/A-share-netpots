@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { clampSentimentRange, fetchSentimentSnapshot } from './sentimentService';
 
 describe('sentiment service', () => {
-  it('requests a manual refresh and accepts exactly six metrics', async () => {
+  it('reloads the deployed snapshot and accepts exactly six metrics', async () => {
     const urls: string[] = [];
     const metrics = Array.from({ length: 6 }, (_, index) => ({ id: String(index), series: [] }));
     const result = await fetchSentimentSnapshot(true, async (url) => {

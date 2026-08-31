@@ -146,7 +146,9 @@ async function getMarketKline(params) {
 function getMarketSentiment() {
   return buildSentimentPayload(SENTIMENT_SEED_ROWS, {
     updatedAt: SENTIMENT_SEED_META.generatedAt,
-    stale: false,
+    stale: Number(SENTIMENT_SEED_META.dataLagTradingDays ?? 0) > 1,
+    marketAsOf: SENTIMENT_SEED_META.marketAsOf,
+    dataLagTradingDays: SENTIMENT_SEED_META.dataLagTradingDays,
     industryClassification: SENTIMENT_SEED_META.industryClassification,
     industryMappingCoverage: SENTIMENT_SEED_META.industryMappingCoverage,
     themeAsOf: SENTIMENT_SEED_META.themeAsOf,

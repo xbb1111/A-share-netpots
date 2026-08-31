@@ -7,6 +7,7 @@
     "api": "node server/financial-report-node.mjs",
     "sentiment:seed": "node scripts/build-sentiment-seed.mjs",
     "sentiment:enrich": "node scripts/enrich-sentiment-seed.mjs",
+    "sentiment:validate": "node scripts/validate-sentiment-freshness.mjs",
     "worker:dev": "npx wrangler dev",
     "worker:deploy": "npx wrangler deploy",
     "dev": "vite --host 0.0.0.0",

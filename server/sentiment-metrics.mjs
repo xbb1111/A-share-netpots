@@ -67,6 +67,8 @@ export function buildSentimentPayload(rows, options = {}) {
   const commonAsOf = sorted.at(-1)?.date ?? null;
   return {
     commonAsOf,
+    marketAsOf: options.marketAsOf ?? commonAsOf,
+    dataLagTradingDays: Number.isFinite(options.dataLagTradingDays) ? options.dataLagTradingDays : 0,
     updatedAt: options.updatedAt ?? new Date().toISOString(),
     stale: Boolean(options.stale),
     industryClassification: options.industryClassification ?? null,

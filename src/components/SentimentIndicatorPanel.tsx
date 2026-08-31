@@ -44,15 +44,16 @@ export function SentimentIndicatorPanel() {
         <SectionHeader icon={Activity} eyebrow="Market Sentiment" title="情绪指标" />
         <button type="button" className="sentiment-refresh" disabled={loading} onClick={() => void load(true)}>
           <RefreshCw size={15} className={loading ? 'spin' : undefined} />
-          {loading ? '正在更新' : '手动刷新'}
+          {loading ? '正在载入' : '重新载入'}
         </button>
       </div>
 
       <div className="sentiment-status">
         <span>统一数据日 <strong>{snapshot?.commonAsOf ?? '—'}</strong></span>
         <span>主题数据日 <strong>{snapshot?.themeAsOf ?? '—'}</strong></span>
+        {snapshot?.marketAsOf && snapshot.marketAsOf !== snapshot.commonAsOf ? <span>市场最新日 <strong>{snapshot.marketAsOf}</strong></span> : null}
         {Number.isFinite(snapshot?.industryMappingCoverage) ? <span>行业标签覆盖 <strong>{Number(snapshot?.industryMappingCoverage).toFixed(2)}%</strong></span> : null}
-        <span>{snapshot?.stale ? '已返回最近完整快照' : '六项指标已对齐'}</span>
+        <span>{snapshot?.stale ? '数据更新异常，请关注数据日' : snapshot?.dataLagTradingDays ? '六项指标采用最近完整交易日' : '六项指标已对齐'}</span>
         <span>一级行业互斥归类 · 主题不计入占比</span>
       </div>
 
