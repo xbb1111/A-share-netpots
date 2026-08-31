@@ -53,6 +53,7 @@ jobs:
       - name: Reject stale sentiment snapshot
         run: npm run sentiment:validate
       - name: Refresh large capital snapshot
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm run capital:seed || echo "::warning::Large-capital refresh failed; validating the committed snapshot instead."
       - name: Reject stale large capital snapshot
         run: npm run capital:validate
