@@ -143,9 +143,8 @@ async function getMarketKline(params) {
   url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
   url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
   try { return await fetchJson(url); } catch {
-    try { return await fetchJson(url); } catch (error) {
-      if (klt === '101' || klt === '102') return getTencentKline(code, klt, limit);
-      throw error;
+    try { return await fetchJson(url); } catch {
+      return getTencentKline(code, klt, limit);
     }
   }
 }
@@ -166,6 +165,7 @@ function getMarketSentiment() {
 async function getTencentKline(code, klt, limit) {
   const prefix = getMarketSecid(code).startsWith('1.') ? 'sh' : 'sz';
   const symbol = `${prefix}${code}`;
+  if (['15', '30', '60'].includes(klt)) return getTencentIntradayKline(code, symbol, klt, limit);
   const period = klt === '102' ? 'week' : 'day';
   const url = new URL('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get');
   url.searchParams.set('param', `${symbol},${period},,,${limit},qfq`);
@@ -181,6 +181,38 @@ async function getTencentKline(code, klt, limit) {
       klines: rows.map((row) => [row[0], row[1], row[2], row[3], row[4], row[5], 0, 0].join(',')),
     },
   };
+}
+
+async function getTencentIntradayKline(code, symbol, klt, limit) {
+  const period = `m${klt}`;
+  const url = new URL('https://ifzq.gtimg.cn/appstock/app/kline/mkline');
+  url.searchParams.set('param', `${symbol},${period},,${limit}`);
+  const payload = await fetchJson(url);
+  const security = payload.data?.[symbol] ?? {};
+  const rows = security[period] ?? [];
+  const quote = security.qt?.[symbol] ?? [];
+  return {
+    rc: payload.code ?? 0,
+    data: {
+      code,
+      name: String(quote[1] ?? code),
+      klines: rows.map((row) => {
+        const open = Number(row[1]);
+        const high = Number(row[3]);
+        const low = Number(row[4]);
+        const amplitude = Number.isFinite(open) && open > 0 && Number.isFinite(high) && Number.isFinite(low)
+          ? Number((((high - low) / open) * 100).toFixed(2))
+          : 0;
+        return [formatTencentIntradayTime(row[0]), row[1], row[2], row[3], row[4], row[5], 0, amplitude].join(',');
+      }),
+    },
+  };
+}
+
+function formatTencentIntradayTime(value) {
+  const text = String(value ?? '');
+  const match = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}` : text;
 }
 
 async function getSecurityMetrics(code) {

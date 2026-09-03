@@ -48,6 +48,49 @@ describe('financial-report-api helpers', () => {
     }
   });
 
+  it('falls back to Tencent intraday K-lines after Eastmoney retries fail', async () => {
+    const fetcher = globalThis.fetch;
+    const urls = [];
+    globalThis.fetch = async (url) => {
+      const requestedUrl = new URL(String(url));
+      urls.push(requestedUrl);
+      if (requestedUrl.hostname === 'push2his.eastmoney.com') {
+        return { ok: false, status: 520, text: async () => 'upstream unavailable' };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            sz300750: {
+              m30: [['202609031500', '349.72', '349.50', '350.69', '349.02', '23948.00', {}, '5.62']],
+              qt: { sz300750: ['51', '宁德时代'] },
+            },
+          },
+        }),
+      };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/market-kline?code=300750&klt=30&limit=5'));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        data: {
+          code: '300750',
+          name: '宁德时代',
+          klines: ['2026-09-03 15:00,349.72,349.50,350.69,349.02,23948.00,0,0.48'],
+        },
+      });
+      expect(urls.map((url) => url.hostname)).toEqual([
+        'push2his.eastmoney.com',
+        'push2his.eastmoney.com',
+        'ifzq.gtimg.cn',
+      ]);
+      expect(urls.at(-1)?.searchParams.get('param')).toBe('sz300750,m30,,5');
+    } finally {
+      globalThis.fetch = fetcher;
+    }
+  });
+
   it('falls back to the delayed quote host for security metrics', async () => {
     const fetcher = globalThis.fetch;
     const hosts = [];
