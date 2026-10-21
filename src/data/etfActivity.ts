@@ -1,4 +1,4 @@
-import { fetchKlineData, type PriceBar } from './priceDiscipline';
+import { buildFinancialApiUrl } from './financialReportService';
 
 export const ACTIVITY_ETFS = [
   { code: '159915', name: '创业板ETF易方达' },
@@ -13,19 +13,49 @@ export const ACTIVITY_ETFS = [
   { code: '510330', name: '沪深300ETF华夏' },
 ] as const;
 const CSI300 = new Set(['510300', '159919', '510310', '510330']);
-export type ActivityHistory = { code: string; name: string; bars: PriceBar[]; error?: string };
+export type ActivityBar = { time: string; amount: number };
+export type ActivityHistory = { code: string; name: string; bars: ActivityBar[]; error?: string; cached?: boolean; updatedAt?: string | null };
+const CACHE_KEY = 'alpha-desk-etf-activity-v1';
 
-export async function fetchEtfActivity(): Promise<ActivityHistory[]> {
-  const results = await Promise.allSettled(ACTIVITY_ETFS.map(async (etf) => {
-    const data = await fetchKlineData({ code: etf.code, period: 'daily', limit: 100,
-      fetcher: (url) => fetch(url, { signal: AbortSignal.timeout(25000) }),
-    });
-    if (!data.bars.length) throw new Error('未返回日线数据');
-    return { ...etf, bars: data.bars };
-  }));
-  return results.map((result, index) => result.status === 'fulfilled' ? result.value : {
-    ...ACTIVITY_ETFS[index], bars: [], error: '行情暂不可用，请重试',
+export function normalizeEtfHistories(input: unknown): ActivityHistory[] {
+  if (!Array.isArray(input)) throw new Error('ETF 数据结构不完整');
+  return ACTIVITY_ETFS.map((etf) => {
+    const item = input.find((value) => value?.code === etf.code);
+    if (!item || !Array.isArray(item.bars)) throw new Error('ETF 数据覆盖不完整');
+    const bars = item.bars.filter((bar: ActivityBar) => bar && /^\d{4}-\d{2}-\d{2}$/.test(bar.time) && Number.isFinite(bar.amount) && bar.amount > 0);
+    return { ...etf, bars, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : null,
+      cached: item.cached === true, error: typeof item.error === 'string' ? item.error : undefined };
   });
+}
+
+export async function fetchEtfActivity(force = false, fetcher = fetch): Promise<ActivityHistory[]> {
+  const suffix = force ? `?refresh=${Date.now()}` : '';
+  const response = await fetcher(buildFinancialApiUrl(`/api/etf-activity${suffix}`), { signal: AbortSignal.timeout(22000) });
+  if (!response.ok) throw new Error('ETF 成交额服务暂不可用，已保留上次数据');
+  const payload = await response.json();
+  return normalizeEtfHistories(payload.histories);
+}
+
+export function mergeEtfHistories(previous: ActivityHistory[], next: ActivityHistory[]) {
+  return next.map((item) => {
+    const old = previous.find((value) => value.code === item.code);
+    if (!old?.bars.length) return item;
+    const oldIsNewer = (old.updatedAt ?? '') > (item.updatedAt ?? '');
+    const bars = [...new Map((oldIsNewer ? [...item.bars, ...old.bars] : [...old.bars, ...item.bars]).map((bar) => [bar.time, bar])).values()].sort((a, b) => a.time.localeCompare(b.time)).slice(-100);
+    return { ...item, bars, updatedAt: oldIsNewer ? old.updatedAt : item.updatedAt,
+      cached: item.cached || !item.bars.length || oldIsNewer,
+      error: item.error || (oldIsNewer ? '服务端快照较旧，保留本机数据' : undefined) };
+  });
+}
+
+export function readEtfCache(): ActivityHistory[] {
+  try {
+    return normalizeEtfHistories(JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null')).map((item) => ({ ...item, cached: true }));
+  } catch { return []; }
+}
+
+export function saveEtfCache(histories: ActivityHistory[]) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(histories)); } catch { /* Reading market data still works without browser storage. */ }
 }
 
 export function previousWeekFriday(date: string) {
@@ -37,7 +67,7 @@ export function previousWeekFriday(date: string) {
 
 // The existing daily K-line fallback uses zero when turnover is unavailable.
 // Treat it as missing rather than reporting a fictitious zero or contraction.
-function amount(bar?: PriceBar) {
+function amount(bar?: ActivityBar) {
   return bar && Number.isFinite(bar.amount) && bar.amount > 0 ? bar.amount / 1e8 : null;
 }
 function ratio(value: number | null, base: number | null) {

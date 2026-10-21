@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEtfActivity, previousWeekFriday, type ActivityHistory } from './etfActivity';
+import { ACTIVITY_ETFS, buildEtfActivity, fetchEtfActivity, mergeEtfHistories, previousWeekFriday, type ActivityHistory } from './etfActivity';
 import type { PriceBar } from './priceDiscipline';
 
 const bar = (time: string, amount: number): PriceBar => ({ time, amount, open: 1, close: 1, high: 1, low: 1, volume: 1, amplitude: 0 });
@@ -13,6 +13,25 @@ function history(code = '510300'): ActivityHistory {
   return { code, name: code, bars };
 }
 describe('ETF activity comparisons', () => {
+  it('loads one aggregate request instead of ten price-only K-line requests', async () => {
+    const urls: string[] = [];
+    const items = await fetchEtfActivity(true, (async (url: string) => {
+      urls.push(url);
+      return { ok: true, json: async () => ({ histories: ACTIVITY_ETFS.map((etf) => ({ ...etf, bars: [{ time: '2026-10-21', amount: 1e8 }] })) }) };
+    }) as typeof fetch);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('/api/etf-activity?refresh=');
+    expect(items).toHaveLength(10);
+  });
+  it('preserves the last good amounts when a later response is empty or older', () => {
+    const previous = { ...history(), updatedAt: '2026-09-22T08:00:00Z' };
+    const [merged] = mergeEtfHistories([previous], [{ code: previous.code, name: previous.name, bars: [], cached: true, error: '刷新失败' }]);
+    expect(merged.bars).toEqual(previous.bars);
+    expect(merged.cached).toBe(true);
+    expect(merged.updatedAt).toBe(previous.updatedAt);
+    const [older] = mergeEtfHistories([previous], [{ ...previous, updatedAt: '2026-09-22T07:00:00Z', bars: [bar('2026-09-22', 1e8)] }]);
+    expect(older.bars.at(-1)?.amount).toBe(2e8);
+  });
   it('uses the prior natural week Friday across weekends and year boundaries', () => {
     expect(previousWeekFriday('2026-09-21')).toBe('2026-09-18');
     expect(previousWeekFriday('2026-09-25')).toBe('2026-09-18');

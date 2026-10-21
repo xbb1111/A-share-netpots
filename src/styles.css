@@ -3176,3 +3176,4 @@ h2 {
 .etf-activity__table small { display: block; margin-top: 5px; }
 .etf-activity__table td.positive { color: var(--red); }
 .etf-activity__table td.negative { color: var(--green); }
+.etf-activity__cache-note { color: var(--gold); font-size: 12px; line-height: 1.6; }

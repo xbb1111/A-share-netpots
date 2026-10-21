@@ -96,10 +96,12 @@ https://a-share-financial-report-api.2561340168.workers.dev
 
 ### ETF 资金观察
 
-- 工具箱新增「ETF 资金观察」，可通过 `#toolbox?tool=etf` 打开，复用 `/api/market-kline` 获取图示 10 只核心宽基 ETF 日线。
+- 工具箱「ETF 资金观察」通过 `#toolbox?tool=etf` 打开，使用 `/api/etf-activity` 一次获取图示 10 只核心宽基 ETF 成交额历史。
 - 按所选交易日成交额排序，比较此前 15 个交易日均值和上一自然周周五，提供全部与四只沪深 300 ETF 合计；支持历史日期切换、刷新和部分失败提示。
-- 这是成交活跃度观察，不代表净流入。备用行情缺失成交额时不计算倍数；日期或基准缺失不补值，数据不全时合计显示缺失。
-- 主要文件：`src/components/EtfActivityPanel.tsx`、`src/data/etfActivity.ts`。
+- 后端使用两个东方财富日线节点容错，校验实际成交额和证券代码，不使用缺成交额的腾讯价格日线；限定请求时长和并发，合并历史并缓存 60 秒。服务端故障保留有效快照，前端缓存保留原确认时间，避免刷新清空。
+- 部署时使用 `node scripts/build-etf-activity-seed.mjs` 更新备用成交额快照，随现有 Worker 定时发布；页面交易时段每分钟自动检查，失败数据明确标记为快照。
+- 这是成交活跃度观察，不代表净流入。日期或基准缺失不补值，数据不全时合计显示缺失。
+- 主要文件：`src/components/EtfActivityPanel.tsx`、`src/data/etfActivity.ts`、`server/etf-activity.mjs`、`server/etf-activity-seed.mjs`。
 
 ### 市场与股票研究
 
