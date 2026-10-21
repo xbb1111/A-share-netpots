@@ -50,6 +50,7 @@ import { FinancialReportPanel } from './components/FinancialReportPanel';
 import { IndustriesPage } from './components/IndustriesPage';
 import { SentimentIndicatorPanel } from './components/SentimentIndicatorPanel';
 import { LargeCapitalFlowPanel } from './components/LargeCapitalFlowPanel';
+import { EtfActivityPanel } from './components/EtfActivityPanel';
 import { getDashboardData, getTrendIconName } from './data/marketService';
 import {
   calculateMovePercent,
@@ -2294,6 +2295,7 @@ function ToolboxPage() {
   const [isCustomIndexToolOpen, setIsCustomIndexToolOpen] = useState(route.tool === 'index');
   const [isSentimentToolOpen, setIsSentimentToolOpen] = useState(route.tool === 'sentiment');
   const [isCapitalToolOpen, setIsCapitalToolOpen] = useState(route.tool === 'capital');
+  const [isEtfActivityOpen, setIsEtfActivityOpen] = useState(route.tool === 'etf');
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -2303,6 +2305,7 @@ function ToolboxPage() {
       if (next.tool === 'index') setIsCustomIndexToolOpen(true);
       if (next.tool === 'sentiment') setIsSentimentToolOpen(true);
       if (next.tool === 'capital') setIsCapitalToolOpen(true);
+      if (next.tool === 'etf') setIsEtfActivityOpen(true);
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -2351,6 +2354,12 @@ function ToolboxPage() {
       </div>
 
       <div className="tool-grid">
+        <article className="tool-card tool-card--builtin">
+          <button className="tool-card__launch" type="button" onClick={() => setIsEtfActivityOpen((current) => !current)} aria-expanded={isEtfActivityOpen}>
+            <div><strong>ETF 资金观察</strong><span>内置工具 · 10只宽基 ETF 成交额、15日均值与上周五对比</span></div>
+            <BarChart3 size={18} aria-hidden="true" />
+          </button>
+        </article>
         <article className="tool-card tool-card--builtin">
           <button
             className="tool-card__launch"
@@ -2444,6 +2453,7 @@ function ToolboxPage() {
       {isCustomIndexToolOpen ? <CustomIndexToolPanel previewId={route.previewId} /> : null}
       {isSentimentToolOpen ? <SentimentIndicatorPanel /> : null}
       {isCapitalToolOpen ? <LargeCapitalFlowPanel /> : null}
+      {isEtfActivityOpen ? <EtfActivityPanel /> : null}
     </section>
   );
 }

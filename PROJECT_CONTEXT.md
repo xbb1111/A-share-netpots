@@ -4,7 +4,7 @@
 
 ## 文档状态
 
-- 最后核对日期：2026-07-20（Asia/Shanghai）
+- 最后核对日期：2026-10-21（Asia/Shanghai；本次更新 ETF 工具说明）
 - 仓库：`xbb1111/A-share-netpots`
 - 本机原始目录：`D:\a-share-center`
 - 默认分支：`main`
@@ -93,6 +93,13 @@ https://a-share-financial-report-api.2561340168.workers.dev
 - README 和本文件中的部署说明
 
 ## 主要功能
+
+### ETF 资金观察
+
+- 工具箱新增「ETF 资金观察」，可通过 `#toolbox?tool=etf` 打开，复用 `/api/market-kline` 获取图示 10 只核心宽基 ETF 日线。
+- 按所选交易日成交额排序，比较此前 15 个交易日均值和上一自然周周五，提供全部与四只沪深 300 ETF 合计；支持历史日期切换、刷新和部分失败提示。
+- 这是成交活跃度观察，不代表净流入。备用行情缺失成交额时不计算倍数；日期或基准缺失不补值，数据不全时合计显示缺失。
+- 主要文件：`src/components/EtfActivityPanel.tsx`、`src/data/etfActivity.ts`。
 
 ### 市场与股票研究
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { parseToolboxRoute, removePreviewFromToolboxHash } from './toolboxRoute';
 
 describe('toolbox route', () => {
+  it('opens the ETF activity tool directly', () => {
+    expect(parseToolboxRoute('#toolbox?tool=etf')).toEqual({ tool: 'etf', previewId: null });
+  });
   it('parses the requested index preview', () => {
     expect(parseToolboxRoute('#toolbox?tool=index&preview=preview%20id')).toEqual({ tool: 'index', previewId: 'preview id' });
   });

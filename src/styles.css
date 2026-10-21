@@ -3165,3 +3165,14 @@ h2 {
     display: grid;
   }
 }
+.etf-activity__intro { color: var(--text-muted, #94a3b8); font-size: 13px; }
+.etf-activity .capital-controls select { background: #141c25; color: #dce4ed; border: 1px solid #354151; border-radius: 5px; padding: 6px 10px; }
+.etf-activity__table { min-width: 700px; font-variant-numeric: tabular-nums; }
+.etf-activity__table th:not(:first-child), .etf-activity__table td:not(:first-child) { text-align: right; }
+.etf-activity__table tbody tr:nth-child(even) { background: rgba(148,163,184,.035); }
+.etf-activity__table tbody .etf-activity__leader { background: rgba(239,83,80,.10); }
+.etf-activity__table tfoot { background: rgba(214,170,92,.13); color: #e5c58c; }
+.etf-activity__table tfoot td { border-top: 1px solid rgba(214,170,92,.25); font-weight: 600; }
+.etf-activity__table small { display: block; margin-top: 5px; }
+.etf-activity__table td.positive { color: var(--red); }
+.etf-activity__table td.negative { color: var(--green); }
