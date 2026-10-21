@@ -2,6 +2,10 @@ import { buildSentimentPayload } from './sentiment-metrics.mjs';
 import { SENTIMENT_SEED_META, SENTIMENT_SEED_ROWS } from './sentiment-seed.mjs';
 import { withLargeCapitalFreshness } from './large-capital-metrics.mjs';
 import { LARGE_CAPITAL_SEED } from './large-capital-seed.mjs';
+import { ETF_ACTIVITY_SEED } from './etf-activity-seed.mjs';
+import { createEtfActivityService } from './etf-activity.mjs';
+
+const getEtfActivity = createEtfActivityService(ETF_ACTIVITY_SEED, { fetcher: (url, init) => fetch(url, init) });
 
 const EASTMONEY_TOKEN = 'D43BF722C8E33A6';
 const CNINFO_REPORT_CATEGORIES = [
@@ -98,6 +102,10 @@ export async function handleFinancialReportRequest(request) {
 
     if (request.method === 'GET' && url.pathname === '/api/market-kline') {
       return jsonResponse(await getMarketKline(url.searchParams));
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/etf-activity') {
+      return jsonResponse(await getEtfActivity(url.searchParams.has('refresh')));
     }
 
     if (request.method === 'GET' && url.pathname === '/api/market-sentiment') {

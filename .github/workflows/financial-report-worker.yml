@@ -13,6 +13,9 @@ on:
       - server/sentiment-seed.mjs
       - server/large-capital-metrics.mjs
       - server/large-capital-seed.mjs
+      - server/etf-activity.mjs
+      - server/etf-activity-seed.mjs
+      - scripts/build-etf-activity-seed.mjs
       - scripts/build-sentiment-seed.mjs
       - scripts/enrich-sentiment-seed.mjs
       - scripts/validate-sentiment-freshness.mjs
@@ -43,6 +46,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Refresh ETF turnover fallback snapshot
+        run: node scripts/build-etf-activity-seed.mjs || echo "::warning::ETF refresh failed; keeping the last verified turnover snapshot."
       - name: Refresh market sentiment snapshot
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
