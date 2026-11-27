@@ -437,21 +437,21 @@ function dedupeFilings(filings) {
 async function buildRealAnalysis(code, filingId) {
   const [security] = await searchSecurities(code);
   const filings = await getFilings(code, 'all');
-  const filing = filings.find((item) => item.id === filingId) ?? filings[0];
+  const filing = filingId ? filings.find((item) => item.id === filingId) : filings[0];
 
   if (!security || !filing) {
     throw new Error('未找到真实证券或公告数据，无法生成分析');
   }
 
   const forecasts = await fetchEastmoneyForecasts(code).catch(() => []);
-  const relatedForecast = pickRelatedForecast(forecasts, filing);
   const financeReports = await fetchEastmoneyMainFinance(code).catch(() => []);
   const relatedFinanceReport = pickRelatedFinanceReport(financeReports, filing);
+  const relatedForecast = filing.type === 'earnings_preview' || !relatedFinanceReport ? pickRelatedForecast(forecasts, filing) : null;
   const componentScores = buildComponentScores(filing, forecasts, relatedForecast, relatedFinanceReport);
   const riskFlags = buildRiskFlags(componentScores, relatedForecast, relatedFinanceReport);
   const bullishDrivers = buildDrivers(componentScores, relatedForecast, relatedFinanceReport);
-  const score = summarizeScore(componentScores);
   const scoreBreakdown = summarizeScoreBreakdown(componentScores, riskFlags);
+  const score = scoreBreakdown.finalScore;
   const verdict = deriveVerdict(score, riskFlags, relatedForecast, relatedFinanceReport);
 
   return {
@@ -463,16 +463,16 @@ async function buildRealAnalysis(code, filingId) {
     bullishDrivers,
     riskFlags,
     componentScores,
-    scoreBreakdown: { ...scoreBreakdown, finalScore: score },
+    scoreBreakdown,
     methodology: {
       engine: '规则引擎 v1（未接入 AI 模型）',
       rules: [
         '公告必须来自真实公开接口，不能用演示数据替代',
-        '业绩预告只匹配同一披露年度的结构化记录',
+        '业绩预告按报告期匹配，忽略公告日之后披露的记录',
         '缺少一致预期、环比增速或同年结构化预告时，不判定为超预期',
         '雷点按缺失项、业绩下滑、风险措辞和利润区间明确度触发',
       ],
-      expectationStandard: '当前版本没有接入机构一致预期和完整季度环比财务表；因此“超预期”只在同年结构化预告明确、增速较高且无高风险雷点时给出，否则标记为待核验或分化。',
+      expectationStandard: '评级反映公开数据下的规则评分；未接入机构一致预期，不能据此计算盈利预期差。',
       aiPrompt: buildAiAnalysisPrompt(security, filing, score, componentScores, riskFlags, relatedForecast, relatedFinanceReport),
     },
     industryChecklist: buildIndustryChecklist(security.industry, filing.type),
@@ -598,12 +598,6 @@ function buildMetricSeries(rows) {
       qoq: toFiniteNumber(metric.qoqField ? row[metric.qoqField] : null),
     }));
 
-    for (let index = 0; index < points.length; index += 1) {
-      if (points[index].qoq === null && index > 0) {
-        points[index].qoq = calculateChangePercent(points[index - 1].value, points[index].value);
-      }
-    }
-
     series[metric.id] = points;
   }
 
@@ -717,10 +711,7 @@ export function pickRelatedForecast(forecasts, filing) {
   }
 
   const targetDate = inferForecastReportDate(filing);
-  const targetYear = filing.reportDate.slice(0, 4);
-  const samePeriodForecasts = forecasts.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate));
-  const sameYearForecasts = forecasts.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear));
-  const candidates = samePeriodForecasts.length > 0 ? samePeriodForecasts : sameYearForecasts;
+  const candidates = forecasts.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate) && (!item.NOTICE_DATE || String(item.NOTICE_DATE).slice(0, 10) <= filing.reportDate));
 
   return sortForecastCandidates(candidates)[0] ?? null;
 }
@@ -731,20 +722,18 @@ export function pickRelatedFinanceReport(financeReports, filing) {
   }
 
   const targetDate = inferForecastReportDate(filing);
-  const targetYear = filing.reportDate.slice(0, 4);
-  const samePeriodReports = financeReports.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate));
-  const sameYearReports = financeReports.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetYear));
-  const candidates = samePeriodReports.length > 0 ? samePeriodReports : sameYearReports;
+  const candidates = financeReports.filter((item) => String(item.REPORT_DATE ?? '').startsWith(targetDate) && (!item.NOTICE_DATE || String(item.NOTICE_DATE).slice(0, 10) <= filing.reportDate));
 
   return [...candidates].sort((a, b) => String(b.NOTICE_DATE ?? '').localeCompare(String(a.NOTICE_DATE ?? '')))[0] ?? null;
 }
 
 function inferForecastReportDate(filing) {
-  const year = filing.reportDate.slice(0, 4);
   const title = String(filing.title ?? '');
+  const explicitYear = title.match(/((?:19|20)\d{2})\s*年?\s*(?:年度|年报|年?第?[一二三四]季|半年度|半年|前三季|中期)/)?.[1];
+  const year = explicitYear ?? (/年度|年报/.test(title) && Number(filing.reportDate.slice(5, 7)) <= 4 ? String(Number(filing.reportDate.slice(0, 4)) - 1) : filing.reportDate.slice(0, 4));
 
   if (/一季|第一季|1-3月|一季度/.test(title)) return `${year}-03-31`;
-  if (/半年度|半年度|半年|1-6月|中期/.test(title)) return `${year}-06-30`;
+  if (/半年度|半年|1-6月|中期/.test(title)) return `${year}-06-30`;
   if (/三季|第三季|前三季|1-9月/.test(title)) return `${year}-09-30`;
   if (/年度|年报|1-12月/.test(title)) return `${year}-12-31`;
 
@@ -767,8 +756,8 @@ function forecastPriority(item) {
   if (code === '004' || /归属于上市公司股东的净利润/.test(finance)) priority += 30;
   if (code === '005' || /扣除非经常性损益后的净利润/.test(finance)) priority += 20;
   if (/净利润/.test(finance)) priority += 10;
-  if (Number.isFinite(Number(item.PREDICT_AMT_LOWER)) || Number.isFinite(Number(item.PREDICT_AMT_UPPER))) priority += 4;
-  if (Number.isFinite(Number(item.INCREASE_JZ))) priority += 2;
+  if (Number.isFinite(toFiniteNumber(item.PREDICT_AMT_LOWER)) || Number.isFinite(toFiniteNumber(item.PREDICT_AMT_UPPER))) priority += 4;
+  if (Number.isFinite(toFiniteNumber(item.INCREASE_JZ))) priority += 2;
   if (String(item.IS_LATEST ?? '') === 'T') priority += 1;
 
   return priority;
@@ -794,24 +783,21 @@ function buildComponentScores(filing, forecasts, relatedForecast, financeReport)
   }
 
   const forecastState = String(relatedForecast?.FORECAST_STATE ?? '');
-  const increase = Number(relatedForecast?.INCREASE_JZ);
+  const increase = toFiniteNumber(relatedForecast?.INCREASE_JZ);
   const amountLow = relatedForecast?.PREDICT_AMT_LOWER;
   const amountHigh = relatedForecast?.PREDICT_AMT_UPPER;
   const hasForecast = Boolean(relatedForecast);
-  const hasProfitAmount = Number.isFinite(Number(amountLow)) || Number.isFinite(Number(amountHigh));
+  const hasProfitAmount = Number.isFinite(toFiniteNumber(amountLow)) || Number.isFinite(toFiniteNumber(amountHigh));
   const growthScore = !hasForecast
     ? null
     : forecastState === 'reduction'
       ? 35
       : Number.isFinite(increase)
         ? Math.round(clamp(55 + increase / 3, 25, 95))
-        : 60;
-  const evidenceScore = hasForecast ? (hasProfitAmount ? 85 : 68) : null;
-  const qualityScore = hasForecast && /亏|下滑|减少|不确定|风险/.test(String(relatedForecast?.CHANGE_REASON_EXPLAIN ?? relatedForecast?.PREDICT_CONTENT ?? ''))
-    ? 42
-    : hasForecast
-      ? 66
-      : null;
+        : null;
+  const evidenceScore = hasProfitAmount ? 85 : null;
+  const reasons = String(relatedForecast?.CHANGE_REASON_EXPLAIN || relatedForecast?.PREDICT_CONTENT || '').trim();
+  const qualityScore = reasons ? (/亏|下滑|减少|不确定|风险/.test(reasons) ? 42 : 66) : null;
 
   return [
     {
@@ -1029,7 +1015,7 @@ function buildDrivers(componentScores, forecast, financeReport) {
     drivers.push(`业绩预告同比增幅中值 ${formatNullablePercent(forecast.INCREASE_JZ)}`);
   }
 
-  if (Number.isFinite(Number(forecast?.FORECAST_JZ))) {
+  if (Number.isFinite(toFiniteNumber(forecast?.FORECAST_JZ))) {
     drivers.push(`预告利润中值 ${formatMoney(forecast.FORECAST_JZ)}`);
   }
 
@@ -1038,18 +1024,6 @@ function buildDrivers(componentScores, forecast, financeReport) {
   }
 
   return drivers;
-}
-
-function summarizeScore(componentScores) {
-  if (componentScores.length === 0) {
-    return 0;
-  }
-
-  const score = componentScores.reduce((total, item) => total + (Number.isFinite(item.score) ? item.score : 35), 0) / componentScores.length;
-  const missingCount = componentScores.filter((item) => item.status === 'missing').length;
-  const missingPenalty = missingCount * 6;
-
-  return Math.round(clamp(score - missingPenalty, 0, 100));
 }
 
 export function summarizeScoreBreakdown(componentScores, riskFlags) {
@@ -1072,7 +1046,7 @@ export function summarizeScoreBreakdown(componentScores, riskFlags) {
       id: item.id,
       label: item.label,
       score: Number.isFinite(item.score) ? Math.round(Number(item.score)) : null,
-      weight: scored.length ? Number((1 / scored.length).toFixed(2)) : 0,
+      weight: Number.isFinite(item.score) ? 1 / scored.length : 0,
       status: item.status,
       evidence: (item.data ?? []).map((data) => `${data.label}=${data.value}`).join('；') || item.detail || '未取得',
       rule: item.detail ?? '按公开结构化字段评分',
@@ -1125,7 +1099,7 @@ function buildExpectationGap(forecast, financeReport) {
 
   return {
     basis: 'guidance_range',
-    percent: Number.isFinite(Number(forecast.INCREASE_JZ)) ? Number(Number(forecast.INCREASE_JZ).toFixed(2)) : null,
+    percent: Number.isFinite(toFiniteNumber(forecast.INCREASE_JZ)) ? Number(Number(forecast.INCREASE_JZ).toFixed(2)) : null,
     label: `${forecast.PREDICT_FINANCE ?? '业绩预告'}：${forecast.PREDICT_TYPE ?? '-'}，同比增幅中值 ${formatNullablePercent(forecast.INCREASE_JZ)}`,
   };
 }
@@ -1266,7 +1240,7 @@ function scoreStatus(score) {
 }
 
 function formatMoney(value) {
-  const number = Number(value);
+  const number = toFiniteNumber(value);
   if (!Number.isFinite(number)) return '未取得';
   if (Math.abs(number) >= 100000000) return `${(number / 100000000).toFixed(2)}亿元`;
   if (Math.abs(number) >= 10000) return `${(number / 10000).toFixed(2)}万元`;
@@ -1274,7 +1248,7 @@ function formatMoney(value) {
 }
 
 function formatNullablePercent(value) {
-  const number = Number(value);
+  const number = toFiniteNumber(value);
   return Number.isFinite(number) ? `${number >= 0 ? '+' : ''}${number.toFixed(2)}%` : '未取得';
 }
 
@@ -1296,11 +1270,12 @@ function getFinancialPeriodLabel(row) {
 }
 
 function formatNullableNumber(value) {
-  const number = Number(value);
+  const number = toFiniteNumber(value);
   return Number.isFinite(number) ? number.toFixed(2) : '未取得';
 }
 
 function toFiniteNumber(value) {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -1328,13 +1303,6 @@ function scoreLevel(value, weak, strong) {
     return 60;
   }
   return clamp(35 + ((value - weak) / (strong - weak)) * 55, 20, 95);
-}
-
-function calculateChangePercent(previous, current) {
-  if (!Number.isFinite(previous) || !Number.isFinite(current) || Number(previous) === 0) {
-    return null;
-  }
-  return Number((((Number(current) - Number(previous)) / Math.abs(Number(previous))) * 100).toFixed(2));
 }
 
 function median(values) {

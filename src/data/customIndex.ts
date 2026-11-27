@@ -33,6 +33,7 @@ export type IndexPoint = {
   value: number;
   dailyReturn: number;
   weights: Record<string, number>;
+  openingWeights: Record<string, number>;
   constituentReturns: Record<string, number>;
 };
 
@@ -73,7 +74,7 @@ export function calculateTargetWeights(
 
   if (method === 'marketCap') {
     const totalMarketCap = components.reduce((sum, component) => sum + (component.marketCap ?? 0), 0);
-    if (totalMarketCap <= 0) {
+    if (!Number.isFinite(totalMarketCap) || components.some((item) => !Number.isFinite(item.marketCap) || (item.marketCap ?? 0) <= 0)) {
       throw new Error('市值数据不足，无法计算市值权重');
     }
     return Object.fromEntries(
@@ -82,6 +83,7 @@ export function calculateTargetWeights(
   }
 
   const totalWeight = components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0);
+  if (components.some((item) => !Number.isFinite(item.targetWeight ?? 0) || (item.targetWeight ?? 0) < 0)) throw new Error('权重必须是非负有限数值');
   if (Math.abs(totalWeight - 100) > EPSILON) {
     throw new Error('权重合计必须为 100%');
   }
@@ -99,6 +101,7 @@ export function getWeightInputDisplayValue(
 
   const component = components.find((item) => item.code === code);
   if (!component) return '0';
+  if (method === 'marketCap' && components.some((item) => !Number.isFinite(item.marketCap) || (item.marketCap ?? 0) <= 0)) return '—';
   const percent = method === 'custom'
     ? component.targetWeight ?? 0
     : (calculateTargetWeights(components, method)[code] ?? 0) * 100;
@@ -114,9 +117,14 @@ export function prepareComponentsForWeightMethod(
   if (nextMethod === 'custom' && currentMethod === 'custom') return components;
   const sourceMethod = nextMethod === 'custom' ? currentMethod : nextMethod;
   const weights = calculateTargetWeights(components, sourceMethod);
-  const targetWeights = components.map((component) => Number(((weights[component.code] ?? 0) * 100).toFixed(2)));
-  const remainder = Number((100 - targetWeights.reduce((sum, weight) => sum + weight, 0)).toFixed(2));
-  if (targetWeights.length > 0) targetWeights[targetWeights.length - 1] = Number((targetWeights[targetWeights.length - 1] + remainder).toFixed(2));
+  // Allocate whole basis points; break equal remainders in reverse component order.
+  const exact = components.map((component) => weights[component.code] * 10000);
+  const basisPoints = exact.map(Math.floor);
+  const unassigned = 10000 - basisPoints.reduce((sum, value) => sum + value, 0);
+  const priority = exact.map((value, index) => ({ index, fraction: value - basisPoints[index] }))
+    .sort((a, b) => b.fraction - a.fraction || b.index - a.index);
+  for (const { index } of priority.slice(0, unassigned)) basisPoints[index] += 1;
+  const targetWeights = basisPoints.map((value) => value / 100);
   return components.map((component, index) => ({
     ...component,
     targetWeight: targetWeights[index],
@@ -195,6 +203,7 @@ export function calculateIndexSeries(config: CustomIndexConfig, histories: Price
   }
   const weights = { ...targetWeights };
   const baseValue = config.baseValue ?? 100;
+  if (!Number.isFinite(baseValue) || baseValue <= 0) throw new Error('基准净值必须是正数');
   const series: IndexPoint[] = [
     {
       date: rows[0].date,
@@ -205,6 +214,7 @@ export function calculateIndexSeries(config: CustomIndexConfig, histories: Price
       value: baseValue,
       dailyReturn: 0,
       weights: { ...weights },
+      openingWeights: { ...weights },
       constituentReturns: Object.fromEntries(config.components.map((component) => [component.code, 0])),
     },
   ];
@@ -253,6 +263,7 @@ export function calculateIndexSeries(config: CustomIndexConfig, histories: Price
       value,
       dailyReturn,
       weights: { ...driftedWeights },
+      openingWeights: { ...weights },
       constituentReturns,
     });
     Object.assign(weights, driftedWeights);
@@ -332,6 +343,6 @@ export function calculateContribution(
   return components.map((component) => ({
     code: component.code,
     name: component.name,
-    contribution: (point.weights[component.code] ?? 0) * (point.constituentReturns[component.code] ?? 0),
+    contribution: (point.openingWeights[component.code] ?? 0) * (point.constituentReturns[component.code] ?? 0),
   }));
 }

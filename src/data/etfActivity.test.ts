@@ -49,6 +49,14 @@ describe('ETF activity comparisons', () => {
     expect(data.total.fridayRatio).toBe(2.5);
     expect(buildEtfActivity([history()], '2026-09-21').rows[0].averageRatio).toBeNull();
   });
+  it('compares the same 15 observed trading dates across ETFs', () => {
+    const incomplete = history('159919');
+    incomplete.bars = [bar('2026-08-31', 10e8), ...incomplete.bars.filter((p) => p.time !== '2026-09-11')];
+    const result = buildEtfActivity([history(), incomplete]);
+    expect(result.rows.find((row) => row.code === '159919')?.averageRatio).toBeNull();
+    expect(result.total.averageRatio).toBeNull();
+    expect(result.total.amount).toBe(4);
+  });
   it('keeps missing fallback turnover and incomplete totals unknown', () => {
     const missing = history('159919');
     missing.bars.at(-1)!.amount = 0;

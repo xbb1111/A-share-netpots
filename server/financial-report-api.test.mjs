@@ -204,6 +204,47 @@ describe('financial-report-api helpers', () => {
     ).toBe(halfYearNetProfitForecast);
   });
 
+  it('matches annual reports by reporting year and excludes later disclosures', () => {
+    const filing = { reportDate: '2026-03-16', title: '样本公司2025年年度报告' };
+    const actual = { REPORT_DATE: '2025-12-31', NOTICE_DATE: '2026-03-16' };
+    const wrongPeriod = { REPORT_DATE: '2026-03-31', NOTICE_DATE: '2026-04-01' };
+    const revision = { REPORT_DATE: '2025-12-31', NOTICE_DATE: '2026-04-02' };
+    for (const pick of [pickRelatedForecast, pickRelatedFinanceReport]) {
+      expect(pick([wrongPeriod, revision, actual], filing)).toBe(actual);
+      expect(pick([wrongPeriod, revision], filing)).toBeNull();
+    }
+  });
+
+  it('returns the same score on the analysis endpoint and waterfall and preserves absent percentages', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      let payload = {};
+      if (url.includes('searchapi')) payload = { QuotationCodeTable: { Data: [{ Code: '000001', Name: '测试公司' }] } };
+      else if (url.includes('cninfo')) payload = { announcements: [{ secCode: '000001', announcementId: 'sample', announcementTitle: '测试公司2025年年度报告', announcementTime: Date.parse('2026-03-16T08:00:00Z'), adjunctUrl: 'sample.pdf' }] };
+      else if (url.includes('MAINFINADATA')) payload = { result: { data: [{ REPORT_DATE: '2025-12-31', NOTICE_DATE: '2026-03-16', PARENTNETPROFITTZ: null, XSMLL: 20 }] } };
+      return { ok: true, json: async () => payload };
+    };
+    try {
+      const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/filings/analyze', {
+        method: 'POST', body: JSON.stringify({ code: '000001', filingId: 'sample' }),
+      }));
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      const result = body.analysis ?? body;
+      expect(result.expectationGap.percent).toBeNull();
+      expect(result.score).toBe(result.scoreBreakdown.waterfall.at(-1).value);
+      expect(result.scoreBreakdown.rows.filter((row) => row.score === null).every((row) => row.weight === 0)).toBe(true);
+    } finally { globalThis.fetch = original; }
+  });
+
+  it('reconciles the displayed average and risk penalties with missing components', () => {
+    const breakdown = summarizeScoreBreakdown([{ id: 'source', score: 90, status: 'positive' },
+      { id: 'growth', score: 70, status: 'neutral' }, { id: 'cashflow', score: null, status: 'missing' }], [{ severity: 'high' }]);
+    expect(breakdown.finalScore).toBe(66);
+    expect(breakdown.rows.map((row) => row.weight)).toEqual([0.5, 0.5, 0]);
+    expect(breakdown.waterfall.at(-1).value).toBe(66);
+  });
   it('handles CORS preflight with the shared fetch entrypoint', async () => {
     const response = await handleFinancialReportRequest(new Request('https://api.example.com/api/filings', { method: 'OPTIONS' }));
 

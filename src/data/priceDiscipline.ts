@@ -256,7 +256,7 @@ export function deriveAutoLevels(bars: PriceBar[], maxLevels = 8): PriceLevel[] 
   }
 
   const close = bars.at(-1)?.close ?? 0;
-  const tolerance = Math.max(close * 0.012, 0.05);
+  const tolerance = Math.max(close * 0.012, 0.001);
   const grouped = groupNearbyLevels(candidates, tolerance);
 
   return grouped
@@ -353,7 +353,7 @@ export function calculatePriceDomain(bars: PriceBar[], referencePrices: number[]
 
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  const range = Math.max(max - min, max * 0.02, 1);
+  const range = Math.max(max - min, max * 0.02, 0.01);
   const padding = range * 0.08;
 
   return [roundPrice(Math.max(0, min - padding)), roundPrice(max + padding)];
@@ -494,7 +494,7 @@ export function toggleSelectedStopLevelIds(selectedIds: string[], levelId: strin
 }
 
 export function roundPrice(price: number): number {
-  return Number(price.toFixed(2));
+  return Number(price.toFixed(3));
 }
 
 function roundPercent(value: number): number {
@@ -519,7 +519,8 @@ function parseKlineRow(row: string): PriceBar | null {
     !Number.isFinite(parsed.open) ||
     !Number.isFinite(parsed.close) ||
     !Number.isFinite(parsed.high) ||
-    !Number.isFinite(parsed.low)
+    !Number.isFinite(parsed.low) || parsed.low <= 0 ||
+    parsed.low > Math.min(parsed.open, parsed.close) || parsed.high < Math.max(parsed.open, parsed.close)
   ) {
     return null;
   }

@@ -501,7 +501,7 @@ function getPriceLevelColor(type: PriceLevelType) {
 }
 
 function formatPrice(value: number) {
-  return value.toFixed(2);
+  return value.toFixed(3).replace(/0$/, '');
 }
 
 function PriceChartTooltip({
@@ -845,7 +845,7 @@ function PriceDisciplinePanel() {
       selectedStopIds.has(row.id) && row.type !== 'buy'
         ? { ...row, type: 'stop' as const, label: getPriceLevelLabel('stop') }
         : row
-    )), highlightedLevelId);
+    )), highlightedLevelId, Math.min(0.5, (klineData?.bars.at(-1)?.close ?? (hasBuyPrice ? buyPrice : 100)) * 0.001));
   const indicatorPrices = useMemo(() => chartRows.flatMap((row) => {
     const prices: Array<number | null | undefined> = [];
 
@@ -1798,7 +1798,8 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
 
   function getDraftWeightTotal() {
     if (draft.weightMethod === 'custom') return draft.components.reduce((sum, component) => sum + (component.targetWeight ?? 0), 0);
-    return (result?.series.at(-1)?.weights ? Object.values(result.series.at(-1)?.weights ?? {}).reduce((sum, weight) => sum + weight, 0) * 100 : 0);
+    if (draft.weightMethod === 'marketCap' && draft.components.some((item) => !result?.marketData.marketCaps[item.code])) return null;
+    return draft.components.length ? 100 : 0;
   }
 
   function updateManualWeight(code: string, weight: number) {
@@ -1823,14 +1824,16 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
   function changeWeightMethod(weightMethod: CustomIndexConfig['weightMethod']) {
     setError(null);
     setWeightInputValues({});
-    setDraft((current) => {
-      const componentsWithMarketCap = current.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
-      return {
-        ...current,
-        weightMethod,
-        components: prepareComponentsForWeightMethod(componentsWithMarketCap, current.weightMethod, weightMethod),
-      };
-    });
+    const componentsWithMarketCap = draft.components.map((item) => ({ ...item, marketCap: result?.marketData.marketCaps[item.code] }));
+    try {
+      const components = weightMethod === 'custom' && draft.weightMethod === 'marketCap' &&
+        componentsWithMarketCap.some((item) => !item.marketCap)
+        ? draft.components
+        : prepareComponentsForWeightMethod(componentsWithMarketCap, draft.weightMethod, weightMethod);
+      setDraft({ ...draft, weightMethod, components });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '无法计算目标权重');
+    }
   }
 
   function updateWeightInput(component: IndexComponent, value: string) {
@@ -2167,7 +2170,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
                   />
                   <div className="custom-index-summary-grid">
                     <div><SectionHeader icon={BarChart3} eyebrow="Composition" title="前五大核心成分" /><div className="custom-index-holdings-head"><span>成分股</span><span>市值</span><span>股价</span><span>PE</span><span>权重</span></div>{coreComponents.map((component) => <div className="custom-index-row custom-index-row--holdings" key={component.code}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result.marketData.marketCaps[component.code])}</b><b>{result.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><b>{((detailWeights[component.code] ?? 0) * 100).toFixed(2)}%</b></div>)}{detailComponents.length > 5 ? <small className="custom-index-core-note">按当前权重仅展示前 5 大成分</small> : null}</div>
-                    <div><SectionHeader icon={Factory} eyebrow="Risk Note" title="研究口径" /><p className="custom-index-note">指数按所选 K 线周期计算，起始净值 {result.series[0].value}，按配置周期调仓。基准在首个共同时间点与指数净值对齐，缺失时段留空。当前仅用于研究观察，不代表可交易 ETF。</p>{result.diagnostics.map((diagnostic) => <p className="custom-index-warning" key={`${diagnostic.code}-${diagnostic.message}`}>{diagnostic.code}：{diagnostic.message}</p>)}</div>
+                    <div><SectionHeader icon={Factory} eyebrow="Risk Note" title="研究口径" /><p className="custom-index-note">{selected.weightMethod === 'marketCap' && '市值权重取自本次查询，用于模拟历史表现。历史调仓沿用这组目标权重。'}指数按所选 K 线周期计算，起始净值 {result.series[0].value}，按配置周期调仓。基准在首个共同时间点与指数净值对齐，缺失时段留空。当前仅用于研究观察，不代表可交易 ETF。</p>{result.diagnostics.map((diagnostic) => <p className="custom-index-warning" key={`${diagnostic.code}-${diagnostic.message}`}>{diagnostic.code}：{diagnostic.message}</p>)}</div>
                   </div>
                 </>
               ) : null}
@@ -2187,7 +2190,7 @@ function CustomIndexToolPanel({ previewId }: { previewId?: string | null }) {
             <label>调仓周期<select value={draft.rebalanceFrequency} onChange={(event) => setDraft((current) => ({ ...current, rebalanceFrequency: event.target.value as CustomIndexConfig['rebalanceFrequency'] }))}><option value="none">不调仓</option><option value="monthly">每月</option><option value="quarterly">每季</option><option value="semiannual">每半年</option><option value="annual">每年</option></select></label>
           </div>
           <div className="custom-index-search"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void searchStocks(); }} placeholder="搜索股票名称或代码" /><button type="button" onClick={() => void searchStocks()} disabled={isSearching}>{isSearching ? '搜索中' : '搜索'}</button>{suggestions.map((suggestion) => <button type="button" className="custom-index-suggestion" key={suggestion.code} onClick={() => addSuggestion(suggestion)}>{suggestion.name} {suggestion.code}</button>)}</div>
-          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{getDraftWeightTotal().toFixed(2)}%</b></div><div className="custom-index-component custom-index-component--header"><span aria-hidden="true" /><button type="button" onClick={() => sortComponents('marketCap')}>对应市值</button><button type="button" onClick={() => sortComponents('price')}>当前股价</button><button type="button" onClick={() => sortComponents('pe')}>当前 PE</button><button type="button" onClick={() => sortComponents('weight')}>当前权重</button><span>操作</span></div>{draft.components.map((component, index) => <div className="custom-index-component" key={component.code} draggable onDragStart={() => setDraggedComponentCode(component.code)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedComponentCode && draggedComponentCode !== component.code) { const from = draft.components.findIndex((item) => item.code === draggedComponentCode); const to = draft.components.findIndex((item) => item.code === component.code); if (from >= 0 && to >= 0) { setDraft((current) => { const items = [...current.components]; const [moved] = items.splice(from, 1); items.splice(to, 0, moved); return { ...current, components: items }; }); } } setDraggedComponentCode(null); }}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={index === draft.components.length - 1}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
+          <div className="custom-index-components"><div className="custom-index-components__head"><span>成分股</span><b>权重合计：{getDraftWeightTotal()?.toFixed(2).concat('%') ?? '待取得市值'}</b></div><div className="custom-index-component custom-index-component--header"><span aria-hidden="true" /><button type="button" onClick={() => sortComponents('marketCap')}>对应市值</button><button type="button" onClick={() => sortComponents('price')}>当前股价</button><button type="button" onClick={() => sortComponents('pe')}>当前 PE</button><button type="button" onClick={() => sortComponents('weight')}>当前权重</button><span>操作</span></div>{draft.components.map((component, index) => <div className="custom-index-component" key={component.code} draggable onDragStart={() => setDraggedComponentCode(component.code)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedComponentCode && draggedComponentCode !== component.code) { const from = draft.components.findIndex((item) => item.code === draggedComponentCode); const to = draft.components.findIndex((item) => item.code === component.code); if (from >= 0 && to >= 0) { setDraft((current) => { const items = [...current.components]; const [moved] = items.splice(from, 1); items.splice(to, 0, moved); return { ...current, components: items }; }); } } setDraggedComponentCode(null); }}><span><strong>{component.name}</strong><small>{component.code} · {component.industry}</small></span><b>{formatMarketCap(result?.marketData.marketCaps[component.code])}</b><b>{result?.marketData.currentPrices[component.code]?.toFixed(2) ?? '-'}</b><b>{result?.marketData.currentPE[component.code]?.toFixed(2) ?? '-'}</b><input aria-label={`${component.name}当前权重`} type="text" inputMode="decimal" value={getEditableWeightText(component)} onChange={(event) => updateWeightInput(component, event.target.value)} onBlur={() => commitWeightInput(component)} /><span className="custom-index-order-actions"><button type="button" onClick={() => moveComponent(component.code, -1)} disabled={index === 0}>↑</button><button type="button" onClick={() => moveComponent(component.code, 1)} disabled={index === draft.components.length - 1}>↓</button><button type="button" onClick={() => removeComponent(component.code)} aria-label={`删除 ${component.name}`}>删除</button></span></div>)}</div>
           <div className="custom-index-editor__footer"><button type="button" onClick={() => setIsEditorOpen(false)}>取消</button>{error ? <span className="custom-index-save-error">{error}</span> : null}<button type="button" className="custom-index-primary" onClick={saveDraft}><Save size={15} /> 保存指数</button></div>
         </div>
       ) : null}

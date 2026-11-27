@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateIndexMetrics,
+  calculateContribution,
   alignBenchmark,
   calculateIndexSeries,
   calculateTargetWeights,
@@ -45,6 +46,21 @@ describe('custom index calculation', () => {
     expect(() => calculateTargetWeights(components.map((item) => ({ ...item, targetWeight: 40 })), 'custom')).toThrow(
       '权重合计必须为 100%',
     );
+  });
+
+  it('rejects missing caps and negative or nonfinite custom weights', () => {
+    expect(() => calculateTargetWeights([{ ...components[0], marketCap: 100 }, components[1]], 'marketCap')).toThrow();
+    for (const weights of [[110, -10], [NaN, 100]]) {
+      expect(() => calculateTargetWeights(components.slice(0, 2).map((c, i) => ({ ...c, targetWeight: weights[i] })), 'custom')).toThrow();
+    }
+  });
+
+  it('attributes the period return using the opening weights including on a rebalance date', () => {
+    const series = calculateIndexSeries({ components, weightMethod: 'custom', rebalanceFrequency: 'monthly' }, histories);
+    for (const point of series) {
+      const total = calculateContribution(components, point).reduce((sum, c) => sum + c.contribution, 0);
+      expect(total).toBeCloseTo(point.dailyReturn, 12);
+    }
   });
 
   it('creates equal weights and market-cap weights', () => {

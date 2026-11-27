@@ -104,7 +104,7 @@ const enrichedRows = targetDates.map((date) => {
     risingAbove10Share: round((aggregate.risingAbove10 / aggregate.risingValid) * 100, 4),
     aboveMa20Share: round((aggregate.aboveMa20 / aggregate.ma20Valid) * 100, 4),
     marginBuyShare: Number.isFinite(previous?.marginBuyShare) ? previous.marginBuyShare : round((marginBuyAmount / aggregate.totalAmount) * 100, 4),
-    erp: Number.isFinite(previous?.erp) ? previous.erp : round((100 / estimatedPe) - yield10y, 4),
+    erp: Number.isFinite(previous?.erp) ? previous.erp : (estimatedPe > 0 && Number.isFinite(yield10y) ? round((100 / estimatedPe) - yield10y, 4) : null),
     ...buildIndustryBreakdown(aggregate),
   };
 }).filter((row) => row && ['turnover', 'top3IndustryShare', 'totalAmountYi', 'risingShare', 'rising0To5Share', 'rising5To10Share', 'risingAbove10Share', 'aboveMa20Share', 'marginBuyShare', 'erp'].every((key) => Number.isFinite(row[key])));
@@ -292,5 +292,5 @@ async function concurrentMap(items, concurrency, mapper) {
 }
 
 function setParams(url, values) { Object.entries(values).forEach(([key, value]) => url.searchParams.set(key, String(value))); }
-function number(value) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
+function number(value) { if (value == null || String(value).trim() === '') return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function round(value, digits) { if (!Number.isFinite(value)) return null; const factor = 10 ** digits; return Math.round(value * factor) / factor; }

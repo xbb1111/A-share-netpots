@@ -94,7 +94,7 @@ export function aggregateCffexDay(rows, product, date) {
 
   const tiers = {};
   for (const limit of [5, 10, 20]) {
-    const selected = rows.filter((row) => row.rank <= limit);
+    const selected = rows.filter((row) => Number.isInteger(row.rank) && row.rank > 0 && row.rank <= limit);
     const long = sum(selected.map((row) => row.long));
     const short = sum(selected.map((row) => row.short));
     const longChange = sum(selected.map((row) => row.longChange));
@@ -114,17 +114,8 @@ export function aggregateCffexDay(rows, product, date) {
 
 export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString(), etfs = [], benchmarks = [], institutionDays = [] }) {
   const processedEtfs = etfs.map(processEtf).filter((item) => item.series.length);
-  const dateSet = new Set(processedEtfs.flatMap((item) => item.series.map((point) => point.date)));
-  const dates = [...dateSet].sort().slice(-252);
-  const groupDefinitions = [
-    { id: 'all', name: '核心宽基合计' },
-    ...uniqueBy(processedEtfs.map((item) => ({ id: item.indexId, name: item.indexName })), (item) => item.id),
-  ];
-  const indexGroups = groupDefinitions.map((group) => ({
-    ...group,
-    series: dates.map((date) => aggregateEtfGroupPoint(processedEtfs, group.id, date)).filter((point) => point.coverage > 0),
-  }));
-  const allSeries = indexGroups.find((group) => group.id === 'all')?.series ?? [];
+  const indexGroups = buildEtfGroups(processedEtfs);
+  const allSeries = indexGroups[0].series;
   const nationalAsOf = allSeries.at(-1)?.date ?? null;
 
   const productMap = new Map();
@@ -151,7 +142,7 @@ export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString
       label: '核心宽基 ETF 资金代理信号',
       disclaimer: 'ETF 日频净申购包含所有投资者，不能直接认定为国家队买卖；官方公告与代理序列分开展示。',
       source: '上海证券交易所、深圳证券交易所、天天基金公开净值、东方财富公开行情',
-      summaries: { day1: sumTail(allSeries, 1), day5: sumTail(allSeries, 5), day20: sumTail(allSeries, 20) },
+      summaries: summarizeFlows(allSeries),
       indexGroups,
       etfs: processedEtfs,
       events: LARGE_CAPITAL_EVENTS,
@@ -168,8 +159,31 @@ export function buildLargeCapitalSnapshot({ generatedAt = new Date().toISOString
   };
 }
 
+function buildEtfGroups(processedEtfs) {
+  const dateSet = new Set(processedEtfs.flatMap((item) => item.series.map((point) => point.date)));
+  const dates = [...dateSet].sort().slice(-252);
+  const groupDefinitions = [
+    { id: 'all', name: '核心宽基合计' },
+    ...uniqueBy(processedEtfs.map((item) => ({ id: item.indexId, name: item.indexName })), (item) => item.id),
+  ];
+  const byDate = new Map(processedEtfs.map((etf) => [etf.code, new Map(etf.series.map((point) => [point.date, point]))]));
+  return groupDefinitions.map((group) => ({
+    ...group,
+    series: dates.map((date, i) => aggregateEtfGroupPoint(processedEtfs, group.id, date, i > 0 ? dates[i - 1] : null, byDate)),
+  }));
+}
+
+function summarizeFlows(series) {
+  return { day1: sumTail(series, 1), day5: sumTail(series, 5), day20: sumTail(series, 20) };
+}
+
 export function withLargeCapitalFreshness(seed, now = new Date()) {
   const next = structuredClone(seed);
+  next.nationalTeam.indexGroups = buildEtfGroups(next.nationalTeam.etfs);
+  const series = next.nationalTeam.indexGroups[0].series;
+  next.nationalTeam.asOf = series.at(-1)?.date ?? null;
+  next.nationalTeam.summaries = summarizeFlows(series);
+  next.status = deriveStatus(series, next.institutions.products);
   next.stale = isStale(next.asOf, now.toISOString(), 7);
   return next;
 }
@@ -185,7 +199,7 @@ function processEtf(raw) {
     const previous = sorted[index - 1];
     const previousShares = numberOrNull(previous?.shares);
     const previousNav = numberOrNull(previous?.nav);
-    const shareChange = shares !== null && previousShares !== null ? shares - previousShares : null;
+    const shareChange = shares !== null && previousShares > 0 ? shares - previousShares : null;
     const aum = shares !== null && nav !== null ? shares * nav : null;
     const previousAum = previousShares !== null && previousNav !== null ? previousShares * previousNav : null;
     const sharePct = shareChange !== null && previousShares ? shareChange / previousShares : null;
@@ -279,33 +293,41 @@ function mergeMemberSide(map, name, side, value, change) {
   map.set(name, member);
 }
 
-function aggregateEtfGroupPoint(etfs, groupId, date) {
+function aggregateEtfGroupPoint(etfs, groupId, date, previousDate, byDate) {
   const members = etfs.filter((item) => groupId === 'all' || item.indexId === groupId);
-  const points = members.map((item) => item.series.find((point) => point.date === date)).filter(Boolean);
-  const valid = points.filter((point) => Number.isFinite(point.netFlowYi));
+  const expected = LARGE_CAPITAL_ETFS.filter((item) => groupId === 'all' || item.indexId === groupId).length || members.length;
+  const points = members.map((item) => byDate.get(item.code).get(date)).filter(Boolean);
+  const valid = members.filter((item) => !previousDate || byDate.get(item.code).has(previousDate))
+    .map((item) => byDate.get(item.code).get(date)).filter((point) => Number.isFinite(point?.netFlowYi));
   return {
     date,
-    netFlowYi: valid.length ? round(sum(valid.map((point) => point.netFlowYi))) : null,
-    amountYi: round(sum(points.map((point) => point.amountYi))),
+    netFlowYi: expected > 0 && valid.length === expected ? round(sum(valid.map((point) => point.netFlowYi))) : null,
+    amountYi: points.length === expected && points.every((point) => Number.isFinite(point.amountYi)) ? round(sum(points.map((point) => point.amountYi))) : null,
     coverage: valid.length,
-    expected: members.length,
-    qualityFlags: valid.length < members.length ? ['partial-coverage'] : [],
+    expected,
+    qualityFlags: valid.length < expected ? ['partial-coverage'] : [],
   };
 }
 
 function deriveStatus(allSeries, products) {
   const etf5 = sumTail(allSeries, 5);
-  const institution5 = sum(products.map((product) => sumTail(product.summarySeries, 5, 'netChange')));
-  if (!Number.isFinite(etf5) || !products.some((item) => item.summarySeries.length)) return '数据不足';
+  const dates = allSeries.slice(-5).map((point) => point.date);
+  const changes = products.map((product) => {
+    const window = product.summarySeries.slice(-5);
+    if (window.length !== 5 || !window.every((point, index) => point.date === dates[index])) return null;
+    return sumTail(window, 5, 'netChange');
+  });
+  if (!Number.isFinite(etf5) || products.length !== 4 || !changes.every(Number.isFinite)) return '数据不足';
+  const institution5 = sum(changes);
   if (etf5 > 0 && institution5 > 0) return '宽基流入与期指披露净多同步增强';
   if (etf5 < 0 && institution5 < 0) return '宽基流出与期指披露净空同步增强';
-  if ((etf5 > 0) !== (institution5 > 0)) return '宽基与期指席位信号分化';
+  if (etf5 * institution5 < 0) return '宽基与期指席位信号分化';
   return '中性';
 }
 
 function sumTail(series, count, field = 'netFlowYi') {
   const values = series.slice(-count).map((point) => point[field]).filter(Number.isFinite);
-  return values.length ? round(sum(values)) : null;
+  return values.length === count ? round(sum(values)) : null;
 }
 
 function sum(values) { return values.filter(Number.isFinite).reduce((total, value) => total + value, 0); }

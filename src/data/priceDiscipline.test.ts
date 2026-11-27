@@ -180,6 +180,17 @@ describe('priceDiscipline', () => {
     expect(parseManualLevels('370, 375.5\ninvalid 380 0 -2')).toEqual([370, 375.5, 380]);
   });
 
+  it('preserves three-decimal price levels and rejects inconsistent OHLC records', async () => {
+    expect(parseManualLevels('1.231 1.232')).toEqual([1.231, 1.232]);
+    const fetcher = async () => ({ ok: true, json: async () => ({ data: { klines: [
+      '2026-01-02,1.231,1.232,1.235,1.230,10,20,1',
+      '2026-01-05,,1.1,1.2,0,10,20,1',
+      '2026-01-06,1.2,1.1,1.0,0.9,10,20,1',
+    ] } }) });
+    const data = await fetchKlineData({ code: '510300', period: 'daily', fetcher });
+    expect(data.bars.map((bar) => bar.close)).toEqual([1.232]);
+  });
+
   it('detects automatic support and resistance levels from local lows and highs', () => {
     const levels = deriveAutoLevels([
       { time: '1', open: 100, close: 101, high: 105, low: 99, volume: 1, amount: 1, amplitude: 1 },

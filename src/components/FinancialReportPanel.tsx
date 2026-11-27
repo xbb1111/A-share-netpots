@@ -37,10 +37,10 @@ const FILING_TYPE_OPTIONS: Array<{ value: FilingType | 'all'; label: string }> =
 ];
 
 const VERDICT_LABELS: Record<FilingAnalysisResult['verdict'], string> = {
-  above: '超预期',
-  in_line: '符合预期',
-  below: '不及预期',
-  mixed: '结果分化',
+  above: '规则评级偏强',
+  in_line: '规则评级中性',
+  below: '规则评级偏弱',
+  mixed: '分化或待核验',
 };
 
 export function FinancialReportPanel() {

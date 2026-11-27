@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateCffexDay, buildLargeCapitalSnapshot, normalizeMemberName, parseCffexCsv } from './large-capital-metrics.mjs';
+import { LARGE_CAPITAL_ETFS, withLargeCapitalFreshness, aggregateCffexDay, buildLargeCapitalSnapshot, normalizeMemberName, parseCffexCsv } from './large-capital-metrics.mjs';
 
 describe('large capital metrics', () => {
   it('parses CFFEX rows and normalizes agency suffixes', () => {
@@ -45,6 +45,20 @@ describe('large capital metrics', () => {
     expect(latest.qualityFlags).toContain('missing-shares');
   });
 
+  it('requires complete dates and funds for reported window sums, also when serving a saved snapshot', () => {
+    const etfs = LARGE_CAPITAL_ETFS.map(({ code }) => ({ code, series: [
+      { date: '2026-04-01', nav: 2, shares: 1e8 },
+      { date: '2026-04-02', nav: 2, shares: 1.1e8 },
+      { date: '2026-04-03', nav: 2, shares: code === '510300' ? null : 1.2e8 },
+    ] }));
+    const snapshot = buildLargeCapitalSnapshot({ etfs });
+    for (const result of [snapshot, withLargeCapitalFreshness(snapshot)]) {
+      const group = result.nationalTeam.indexGroups[0].series;
+      expect(group[1].netFlowYi).toBeCloseTo(2.4);
+      expect(group[2]).toMatchObject({ coverage: 11, expected: 12, netFlowYi: null, amountYi: null });
+      expect(result.nationalTeam.summaries).toEqual({ day1: null, day5: null, day20: null });
+    }
+  });
   it('caps ETF/product history at 252 days and member history at 120 days', () => {
     const dates = Array.from({ length: 280 }, (_, index) => `2025-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String(index % 28 + 1).padStart(2, '0')}`);
     const institutionDays = dates.map((date) => aggregateCffexDay([{ rank: 1, contract: 'IF9999', longMember: '甲席位', long: 10, longChange: 1, shortMember: '乙席位', short: 9, shortChange: 0 }], 'IF', date));

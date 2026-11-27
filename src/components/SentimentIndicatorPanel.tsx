@@ -85,7 +85,7 @@ function SentimentCard({ metric, start, end, topThemes, themeAsOf, industryClass
         <div><span>{metric.name}</span><strong>{formatValue(metric.value, metric.unit)}</strong></div>
         <b>{metric.zone}</b>
       </header>
-      <div className="sentiment-card__meta"><span>252日情绪分位</span><strong>{metric.percentile252 === null ? '—' : `${metric.percentile252.toFixed(1)}%`}</strong></div>
+      <div className="sentiment-card__meta"><span>{metric.series.length}日情绪分位</span><strong>{metric.percentile252 === null ? '—' : `${metric.percentile252.toFixed(1)}%`}</strong></div>
       <div className="sentiment-chart" aria-label={`${metric.name}历史趋势`}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: showRisingBands ? 0 : 8, bottom: 0, left: 0 }}>

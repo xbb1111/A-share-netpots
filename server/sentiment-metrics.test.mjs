@@ -7,6 +7,14 @@ describe('sentiment metrics', () => {
     expect(emotionPercentile('erp', [1, 2, 3, 4], 3)).toBe(25);
   });
 
+  it('uses the common data date, and treats a constant window as neutral', () => {
+    const days = [{ date: '2026-01-02', turnover: 2, erp: 4 }, { date: '2026-01-05', turnover: 2, erp: 4 },
+      { date: '2026-01-06', turnover: 3, erp: null }];
+    const payload = buildSentimentPayload(days, { definitions: [{ id: 'turnover' }, { id: 'erp' }] });
+    expect(payload.commonAsOf).toBe('2026-01-05');
+    expect(payload.metrics.map(m => m.percentile252)).toEqual([50, 50]);
+    expect(payload.metrics[0].series[0].percentile252).toBeNull();
+  });
   it('uses the report five-zone boundaries', () => {
     expect([19.9, 20, 40, 60, 80].map(getEmotionZone)).toEqual(['极度恐慌', '偏冷', '中性', '偏热', '极度贪婪']);
   });

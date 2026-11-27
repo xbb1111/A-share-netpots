@@ -78,15 +78,15 @@ export function buildEtfActivity(histories: ActivityHistory[], selectedDate?: st
   const dates = [...new Set(histories.flatMap((item) => item.bars.map((bar) => bar.time.slice(0, 10))))].sort().reverse();
   const date = selectedDate || dates[0] || null;
   const friday = date ? previousWeekFriday(date) : null;
+  const priorDates = dates.filter((day) => date && day < date).slice(0, 15);
   const rows = histories.map((item) => {
-    const bars = [...item.bars].sort((a, b) => a.time.localeCompare(b.time));
-    const current = bars.find((bar) => bar.time.slice(0, 10) === date);
-    const history = bars.filter((bar) => date && bar.time.slice(0, 10) < date).slice(-15);
-    const amounts = history.map(amount);
+    const byDate = new Map(item.bars.map((bar) => [bar.time.slice(0, 10), bar]));
+    const current = date ? byDate.get(date) : undefined;
+    const amounts = priorDates.map((day) => amount(byDate.get(day)));
     const average = amounts.length === 15 && amounts.every((value) => value !== null)
       ? amounts.reduce<number>((sum, value) => sum + value!, 0) / 15 : null;
     const currentAmount = amount(current);
-    const fridayAmount = amount(bars.find((bar) => bar.time.slice(0, 10) === friday));
+    const fridayAmount = amount(friday ? byDate.get(friday) : undefined);
     return { ...item, amount: currentAmount, average, fridayAmount,
       averageRatio: ratio(currentAmount, average), fridayRatio: ratio(currentAmount, fridayAmount),
     };

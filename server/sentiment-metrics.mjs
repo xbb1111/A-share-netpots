@@ -1,10 +1,10 @@
 export const SENTIMENT_METRIC_DEFINITIONS = [
-  { id: 'turnover', name: '换手率', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '有效 A 股自由流通市值加权换手率', interpretation: '高：交易活跃、情绪升温；低：交投清淡、情绪偏冷。' },
+  { id: 'turnover', name: '换手率', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '按有效样本流通市值加权的换手率，历史权重依赖取数时的流通市值或估算流通股数', interpretation: '高：交易活跃、情绪升温；低：交投清淡、情绪偏冷。' },
   { id: 'top3IndustryShare', name: 'TOP3 申万一级行业成交额占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情 / 申万行业分类', formula: '成交额前三申万一级行业合计 ÷ 全市场成交额', interpretation: '高：资金集中于少数一级行业、情绪偏热；低：行业成交分散。热门主题独立观察，不计入本指标。' },
   { id: 'risingShare', name: '上涨个股占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '上涨股票数 ÷ 当日有效股票数', interpretation: '高：赚钱效应覆盖面广、情绪偏热；低：亏钱效应扩散、情绪偏冷。' },
   { id: 'aboveMa20Share', name: '个股站上 MA20 占比', unit: '%', direction: 'higher-hot', source: '东方财富公开行情', formula: '收盘价高于 20 日简单均线股票数 ÷ MA20 有效股票数', interpretation: '高：中期趋势覆盖面强、情绪偏热；低：多数个股趋势偏弱、情绪偏冷。' },
   { id: 'marginBuyShare', name: '融资买入额占比', unit: '%', direction: 'higher-hot', source: '东方财富两融汇总 / 国证A指', formula: '沪深两市融资买入额 ÷ A 股成交额', interpretation: '高：杠杆资金加速入场、风险偏好升温；低：融资参与减弱、情绪偏冷。' },
-  { id: 'erp', name: '风险溢价 ERP', unit: '%', direction: 'lower-hot', source: '国证A指 / 中债国债收益率曲线', formula: '100 ÷ 国证A指滚动市盈率 − 10 年期国债收益率', interpretation: '高：风险补偿要求高、风险偏好低；低：风险偏好高、情绪偏热。' },
+  { id: 'erp', name: '风险溢价 ERP', unit: '%', direction: 'lower-hot', source: '国证A指 / 中债国债收益率曲线', formula: '100 ÷ 国证A指估算市盈率 − 10 年期国债收益率（历史市盈率按指数点位比例回推）', interpretation: '高：风险补偿要求高、风险偏好低；低：风险偏好高、情绪偏热。' },
 ];
 
 export function percentileRank(values, current) {
@@ -15,7 +15,9 @@ export function percentileRank(values, current) {
 
 export function emotionPercentile(id, values, current) {
   const rank = percentileRank(values, current);
-  return rank === null ? null : id === 'erp' ? round(100 - rank, 1) : rank;
+  if (rank === null) return null;
+  if (values.filter(Number.isFinite).every((value) => value === current)) return 50;
+  return id === 'erp' ? round(100 - rank, 1) : rank;
 }
 
 export function getEmotionZone(percentile) {
@@ -28,17 +30,16 @@ export function getEmotionZone(percentile) {
 }
 
 export function buildSentimentPayload(rows, options = {}) {
-  const sorted = [...rows]
-    .filter((row) => row?.date)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-252);
   const definitions = options.definitions ?? SENTIMENT_METRIC_DEFINITIONS;
+  const sorted = [...new Map(rows.filter((row) => row?.date).map((row) => [row.date, row])).values()]
+    .filter((row) => definitions.every((definition) => Number.isFinite(row[definition.id])))
+    .sort((a, b) => a.date.localeCompare(b.date));
   const metrics = definitions.map((definition) => {
     const series = sorted
       .filter((row) => Number.isFinite(row[definition.id]))
       .map((row, index, available) => {
         const priorValues = available.slice(Math.max(0, index - 251), index + 1).map((item) => item[definition.id]);
-        const percentile252 = emotionPercentile(definition.id, priorValues, row[definition.id]);
+        const percentile252 = priorValues.length < 2 ? null : emotionPercentile(definition.id, priorValues, row[definition.id]);
         return {
           date: row.date,
           value: round(row[definition.id], 4),
@@ -54,7 +55,7 @@ export function buildSentimentPayload(rows, options = {}) {
             amountEstimated: Boolean(row.amountEstimated),
           } : {}),
         };
-      });
+      }).slice(-252);
     const latest = series.at(-1);
     return {
       ...definition,
