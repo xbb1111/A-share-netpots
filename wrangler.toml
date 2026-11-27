@@ -2,3 +2,11 @@
 name = "a-share-financial-report-api"
 main = "server/financial-report-worker.mjs"
 compatibility_date = "2026-07-09"
+
+[[durable_objects.bindings]]
+name = "SNAPSHOT_REFRESH"
+class_name = "SnapshotRefresh"
+
+[[migrations]]
+tag = "snapshot-refresh-v1"
+new_sqlite_classes = ["SnapshotRefresh"]

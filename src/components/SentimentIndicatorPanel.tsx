@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { SnapshotRefreshControl } from './SnapshotRefreshControl';
 import { SectionHeader } from './SectionHeader';
 import { clampSentimentRange, fetchSentimentSnapshot, type SentimentMetric, type SentimentPoint, type SentimentSnapshot, type SentimentTheme } from '../data/sentimentService';
 
@@ -42,10 +43,7 @@ export function SentimentIndicatorPanel() {
     <section className="sentiment-tool panel" aria-label="情绪指标">
       <div className="sentiment-tool__heading">
         <SectionHeader icon={Activity} eyebrow="Market Sentiment" title="情绪指标" />
-        <button type="button" className="sentiment-refresh" disabled={loading} onClick={() => void load(true)}>
-          <RefreshCw size={15} className={loading ? 'spin' : undefined} />
-          {loading ? '正在载入' : '重新载入'}
-        </button>
+        <SnapshotRefreshControl className="sentiment-refresh" onReload={() => load(true)} dataDate={snapshot?.commonAsOf} updatedAt={snapshot?.updatedAt} />
       </div>
 
       <div className="sentiment-status">

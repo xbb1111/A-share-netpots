@@ -1,0 +1,32 @@
+name: Check website data requests
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: check-snapshot-requests
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Start collection for an outstanding website request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ticket=$(curl -fsS --retry 2 --max-time 15 https://a-share-financial-report-api.2561340168.workers.dev/api/snapshot-refresh)
+          [[ $(jq -r .status <<< "$ticket") =~ ^(queued|unknown)$ ]] || exit 0
+          id=$(jq -er .id <<< "$ticket")
+          [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+          runs=$(gh run list -w financial-report-worker.yml -b main -e workflow_dispatch -L 30 --json displayTitle)
+          if ! jq -e --arg title "Website refresh $id" 'any(.[]; .displayTitle == $title)' <<< "$runs" >/dev/null; then
+            gh workflow run financial-report-worker.yml --ref main -f refresh_id="$id"
+          fi

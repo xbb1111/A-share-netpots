@@ -3222,3 +3222,7 @@ h2 {
   color: var(--cyan);
   cursor: pointer;
 }
+
+.snapshot-refresh-control { display: grid; justify-items: end; gap: 5px; max-width: 28rem; }
+.snapshot-refresh-control small { color: var(--muted, #aab4c0); font-size: .75rem; line-height: 1.5; text-align: right; }
+@media (max-width: 640px) { .snapshot-refresh-control { width: 100%; justify-items: stretch; } .snapshot-refresh-control small { text-align: left; } }

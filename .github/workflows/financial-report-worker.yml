@@ -1,4 +1,5 @@
 name: Deploy Financial Report API
+run-name: ${{ inputs.refresh_id && format('Website refresh {0}', inputs.refresh_id) || 'Deploy Financial Report API' }}
 
 on:
   schedule:
@@ -9,6 +10,8 @@ on:
     paths:
       - server/financial-report-api.mjs
       - server/financial-report-worker.mjs
+      - server/snapshot-refresh.mjs
+      - scripts/guard-snapshot-dates.mjs
       - server/sentiment-metrics.mjs
       - server/sentiment-seed.mjs
       - server/large-capital-metrics.mjs
@@ -27,10 +30,15 @@ on:
       - package-lock.json
       - .github/workflows/financial-report-worker.yml
   workflow_dispatch:
+    inputs:
+      refresh_id:
+        description: Website refresh request ID
+        required: false
+        type: string
 
 concurrency:
   group: financial-report-api
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -46,25 +54,56 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Restore previously published market snapshots for this calculation version
+        id: snapshots
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            server/large-capital-seed.mjs
+            server/sentiment-seed.mjs
+          key: market-v1-${{ hashFiles('server/*-metrics.mjs', 'server/large-capital-seed.mjs', 'server/sentiment-seed.mjs', 'scripts/*seed.mjs') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            market-v1-${{ hashFiles('server/*-metrics.mjs', 'server/large-capital-seed.mjs', 'server/sentiment-seed.mjs', 'scripts/*seed.mjs') }}-
       - name: Refresh ETF turnover fallback snapshot
         run: node scripts/build-etf-activity-seed.mjs || echo "::warning::ETF refresh failed; keeping the last verified turnover snapshot."
+      - name: Keep the last snapshots while checking new candidates
+        run: cp server/{sentiment,large-capital}-seed.mjs "$RUNNER_TEMP/"
       - name: Refresh market sentiment snapshot
+        id: sentiment
+        continue-on-error: true
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            npm run sentiment:seed || npm run sentiment:enrich || echo "::warning::Sentiment refresh failed; deploying the committed snapshot."
+          if [ "${{ github.event_name }}" != "push" ]; then
+            npm run sentiment:seed || npm run sentiment:enrich
           else
-            npm run sentiment:enrich || echo "::warning::Sentiment refresh failed; deploying the committed snapshot."
+            npm run sentiment:enrich
           fi
       - name: Reject stale sentiment snapshot
+        id: sentiment_check
+        continue-on-error: true
         # Public market-data sources occasionally lag or reject GitHub-hosted
         # runners. Keep the Worker available with its last valid snapshot;
         # the refresh issue is surfaced as a workflow warning instead.
-        run: npm run sentiment:validate || echo "::warning::Sentiment snapshot is stale; deploying the last valid snapshot."
+        run: npm run sentiment:validate
       - name: Refresh large capital snapshot
+        id: capital
+        continue-on-error: true
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: npm run capital:seed || echo "::warning::Large-capital refresh failed; validating the committed snapshot instead."
+        run: npm run capital:seed
       - name: Reject stale large capital snapshot
-        run: npm run capital:validate || echo "::warning::Large-capital snapshot is stale; deploying the last valid snapshot."
+        id: capital_check
+        continue-on-error: true
+        run: npm run capital:validate
+      - name: Keep previous sentiment data if collection or validation failed
+        if: steps.sentiment.outcome == 'failure' || steps.sentiment_check.outcome == 'failure'
+        run: cp "$RUNNER_TEMP/sentiment-seed.mjs" server/
+      - name: Keep previous capital data if collection or validation failed
+        if: steps.capital.outcome == 'failure' || steps.capital_check.outcome == 'failure'
+        run: cp "$RUNNER_TEMP/large-capital-seed.mjs" server/
+      - name: Report failure when neither website dataset could be refreshed
+        if: inputs.refresh_id && (steps.sentiment.outcome != 'success' || steps.sentiment_check.outcome != 'success') && (steps.capital.outcome != 'success' || steps.capital_check.outcome != 'success')
+        run: exit 1
+      - name: Check published data dates before replacing the Worker
+        run: node scripts/guard-snapshot-dates.mjs
       - name: Deploy Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -75,3 +114,10 @@ jobs:
             sleep 15
             npm run worker:deploy
           }
+      - name: Save published market snapshots
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            server/large-capital-seed.mjs
+            server/sentiment-seed.mjs
+          key: ${{ steps.snapshots.outputs.cache-primary-key }}

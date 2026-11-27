@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Building2, Landmark, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Building2, Landmark } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { SnapshotRefreshControl } from './SnapshotRefreshControl';
 import { SectionHeader } from './SectionHeader';
 import { addNormalizedOverlays, capitalWindow, fetchLargeCapitalSnapshot, sortCapitalMembers, type CapitalMember, type CapitalProduct, type LargeCapitalSnapshot } from '../data/largeCapitalService';
 
@@ -12,7 +13,6 @@ export function LargeCapitalFlowPanel() {
   const [snapshot, setSnapshot] = useState<LargeCapitalSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshNote, setRefreshNote] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('national');
   const [windowSize, setWindowSize] = useState<(typeof WINDOWS)[number]>(60);
   const [indexId, setIndexId] = useState('all');
@@ -26,11 +26,9 @@ export function LargeCapitalFlowPanel() {
   async function load(manual = false) {
     setLoading(true);
     setError(null);
-    if (manual) setRefreshNote(null);
     try {
       const next = await fetchLargeCapitalSnapshot(fetch, manual);
       setSnapshot(next);
-      if (manual) setRefreshNote(`已检查云端快照，最新数据日 ${next.asOf ?? '—'}`);
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : '大资金动向加载失败'); }
     finally { setLoading(false); }
@@ -47,9 +45,9 @@ export function LargeCapitalFlowPanel() {
     <section className="capital-tool panel" aria-label="大资金动向">
       <div className="capital-tool__heading">
         <SectionHeader icon={Landmark} eyebrow="Large Capital Flow" title="大资金动向" />
-        <button type="button" className="capital-refresh" disabled={loading} onClick={() => void load(true)}><RefreshCw size={15} className={loading ? 'spin' : undefined} />{loading ? '正在检查' : '检查最新快照'}</button>
+        <SnapshotRefreshControl className="capital-refresh" onReload={() => load(true)} dataDate={snapshot?.asOf} updatedAt={snapshot?.updatedAt} />
       </div>
-      <div className="capital-status"><strong>{snapshot?.status ?? '读取数据中'}</strong><span>统一数据日 {snapshot?.asOf ?? '—'}</span><span className={snapshot?.stale ? 'is-stale' : ''}>{snapshot?.stale ? '快照可能陈旧' : '快照有效'}</span>{refreshNote ? <span>{refreshNote}</span> : null}</div>
+      <div className="capital-status"><strong>{snapshot?.status ?? '读取数据中'}</strong><span>统一数据日 {snapshot?.asOf ?? '—'}</span><span className={snapshot?.stale ? 'is-stale' : ''}>{snapshot?.stale ? '快照可能陈旧' : '快照有效'}</span></div>
       <div className="capital-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'national'} onClick={() => setTab('national')}><Landmark size={15} />国家队动向</button>
         <button type="button" role="tab" aria-selected={tab === 'institutions'} onClick={() => setTab('institutions')}><Building2 size={15} />机构动向</button>
