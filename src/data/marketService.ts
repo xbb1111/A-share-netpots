@@ -125,10 +125,14 @@ export function buildIndustries(sectors: EastmoneySector[]): IndustrySignal[] {
 }
 
 function buildWatchlist(stocks: EastmoneyStock[]): WatchStock[] {
-  const maxFlow = Math.max(...stocks.map((stock) => Math.abs(stock.f62)), 1);
+  const candidates = stocks
+    .filter((stock) => stock.f12 && stock.f14 && Number.isFinite(stock.f3) && Number.isFinite(stock.f2) && stock.f2 > 0 && Number.isFinite(stock.f62))
+    .sort((a, b) => b.f62 - a.f62)
+    .slice(0, 12);
+  const maxFlow = Math.max(...candidates.map((stock) => Math.abs(stock.f62)), 1);
 
-  return stocks.slice(0, 12).map((stock) => {
-    const score = Math.round(clamp(45 + stock.f3 * 4 + (Math.abs(stock.f62) / maxFlow) * 35));
+  return candidates.map((stock) => {
+    const score = Math.round(clamp(45 + stock.f3 * 4 + (stock.f62 / maxFlow) * 35));
     const trend = toTrend(stock.f3);
     const flowText = stock.f62 >= 0 ? '主力净流入' : '主力净流出';
 
@@ -147,7 +151,7 @@ function buildWatchlist(stocks: EastmoneyStock[]): WatchStock[] {
 }
 
 function buildAlerts(industries: IndustrySignal[], watchlist: WatchStock[], now: Date): AlertSignal[] {
-  const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' });
   const sectorAlerts = industries.slice(0, 3).map((industry): AlertSignal => ({
     title: industry.trend === 'down' ? '行业回撤' : '行业异动',
     target: industry.name,
@@ -168,19 +172,21 @@ function buildAlerts(industries: IndustrySignal[], watchlist: WatchStock[], now:
   return [...sectorAlerts, ...stockAlerts];
 }
 
-function buildOverview(industries: IndustrySignal[], watchlist: WatchStock[]): OverviewMetric[] {
+function buildOverview(industries: IndustrySignal[], watchlist: WatchStock[], alerts: AlertSignal[]): OverviewMetric[] {
   const risingCount = watchlist.filter((stock) => stock.change > 0).length;
+  const fallingCount = watchlist.filter((stock) => stock.change < 0).length;
+  const breadth = (risingCount - fallingCount) / Math.max(watchlist.length, 1);
   const averageChange =
     watchlist.reduce((total, stock) => total + stock.change, 0) / Math.max(watchlist.length, 1);
-  const topIndustry = industries[0];
-  const highPriorityAlerts = watchlist.filter((stock) => stock.score >= 85 || Math.abs(stock.change) >= 5).length;
+  const topIndustry = industries.reduce<IndustrySignal | undefined>((top, item) => !top || item.heat > top.heat ? item : top, undefined);
+  const highPriorityAlerts = alerts.filter((alert) => alert.level === '高').length;
 
   return [
     {
-      label: '大盘温度',
-      value: String(Math.round(clamp(50 + averageChange * 6 + (risingCount / Math.max(watchlist.length, 1)) * 30 - 15))),
-      detail: `股票池平均涨跌幅 ${averageChange.toFixed(2)}%，上涨 ${risingCount}/${watchlist.length}。`,
-      tone: averageChange >= 0 ? 'positive' : 'negative',
+      label: '股票池温度',
+      value: watchlist.length ? String(Math.round(clamp(50 + averageChange * 6 + breadth * 15))) : '—',
+      detail: watchlist.length ? `股票池平均涨跌幅 ${averageChange.toFixed(2)}%，上涨 ${risingCount}/${watchlist.length}。` : '暂无有效股票行情。',
+      tone: averageChange === 0 ? 'neutral' : averageChange > 0 ? 'positive' : 'negative',
       icon: Gauge,
     },
     {
@@ -191,37 +197,24 @@ function buildOverview(industries: IndustrySignal[], watchlist: WatchStock[]): O
       icon: Flame,
     },
     {
-      label: '今日预警',
-      value: String(highPriorityAlerts),
-      detail: `${highPriorityAlerts} 条高优先级价格或资金异动。`,
+      label: '高优先级预警',
+      value: alerts.length ? String(highPriorityAlerts) : '—',
+      detail: `当前预警队列共 ${alerts.length} 条。`,
       tone: highPriorityAlerts > 0 ? 'negative' : 'neutral',
       icon: AlertTriangle,
     },
     {
       label: '股票池表现',
-      value: `${averageChange >= 0 ? '+' : ''}${averageChange.toFixed(2)}%`,
-      detail: '按主力净流入排序。',
-      tone: averageChange >= 0 ? 'positive' : 'negative',
+      value: watchlist.length ? `${averageChange >= 0 ? '+' : ''}${averageChange.toFixed(2)}%` : '—',
+      detail: '候选股等权平均涨跌幅。',
+      tone: averageChange === 0 ? 'neutral' : averageChange > 0 ? 'positive' : 'negative',
       icon: Radar,
     },
   ];
 }
 
-function buildHeatTrend(industries: IndustrySignal[]) {
-  const base = Math.round(industries.reduce((total, item) => total + item.heat, 0) / Math.max(industries.length, 1));
-  return [
-    { time: '09:30', value: clamp(base - 8) },
-    { time: '10:00', value: clamp(base - 3) },
-    { time: '10:30', value: clamp(base + 2) },
-    { time: '11:00', value: clamp(base + 1) },
-    { time: '13:00', value: clamp(base - 2) },
-    { time: '14:00', value: clamp(base + 4) },
-    { time: '14:45', value: clamp(base + 6) },
-  ];
-}
-
 function buildMarketCalendar(now: Date) {
-  const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short' }).format(now);
+  const dateLabel = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short', timeZone: 'Asia/Shanghai' }).format(now);
 
   return [
     { date: dateLabel, event: 'A 股实时行情跟踪', impact: '盘中关注行业主力净流入和涨跌幅同步放大的板块。' },
@@ -241,18 +234,18 @@ export async function getDashboardData(options: GetDashboardDataOptions = {}): P
   const stocks = stocksResult.status === 'fulfilled' ? stocksResult.value : [];
   const industries = industriesResult.status === 'fulfilled' ? industriesResult.value : [];
   const watchlist = buildWatchlist(stocks);
+  const alerts = buildAlerts(industries, watchlist, now);
   const topThemes = industries.slice(0, 3);
 
   return {
     source: EASTMONEY_SOURCE_NAME,
-    displaySource: DISPLAY_SOURCE_NAME,
-    lastUpdated: now.toLocaleString('zh-CN', { hour12: false }),
-    overview: buildOverview(industries, watchlist),
+    displaySource: industries.length && watchlist.length ? DISPLAY_SOURCE_NAME : industries.length || watchlist.length ? '部分行情可用' : '行情暂无数据',
+    lastUpdated: now.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }),
+    overview: buildOverview(industries, watchlist, alerts),
     industries,
     watchlist,
-    alerts: buildAlerts(industries, watchlist, now),
+    alerts,
     marketCalendar: buildMarketCalendar(now),
-    heatTrend: buildHeatTrend(industries),
     themes: topThemes.map((industry) => ({
       name: industry.name,
       strength: industry.heat,

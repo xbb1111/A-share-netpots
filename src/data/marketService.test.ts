@@ -27,6 +27,9 @@ describe('getDashboardData', () => {
 
     expect(data.industries).toHaveLength(1);
     expect(data.watchlist).toHaveLength(0);
+    expect(data.overview[0].value).toBe('—');
+    expect(data.overview[3].value).toBe('—');
+    expect(data.displaySource).toBe('部分行情可用');
   });
 
   it('builds the dashboard from live market API responses instead of static fixtures', async () => {
@@ -80,6 +83,26 @@ describe('getDashboardData', () => {
     expect(requestedUrls).toHaveLength(2);
     expect(requestedUrls.every((url) => url.startsWith('/api/'))).toBe(true);
     expect(requestedUrls.find((url) => url.includes('/api/industry-boards'))).toContain('pz=100');
+  });
+
+  it('ranks valid candidates by signed flow and counts the actual high-priority queue', async () => {
+    const stocks = [
+      { f12: '000001', f14: '流出', f2: 10, f3: 0, f62: -100 },
+      { f12: '000002', f14: '缺行情', f2: '-', f3: '-', f62: 300 },
+      { f12: '000003', f14: '流入', f2: 10, f3: 0, f62: 100 },
+    ];
+    const boards = [
+      { f12: 'BK1', f14: '第一', f3: -4, f62: 200, f104: 0 },
+      { f12: 'BK2', f14: '第二', f3: 5, f62: 190, f104: 80 },
+    ];
+    const data = await getDashboardData({ fetcher: async (url) => ({
+      ok: true, json: async () => ({ data: { diff: url.includes('industry-boards') ? boards : stocks } }),
+    }) });
+    expect(data.watchlist.map((stock) => stock.name)).toEqual(['流入', '流出']);
+    expect(data.watchlist[0].score).toBeGreaterThan(data.watchlist[1].score);
+    expect(data.overview[0].value).toBe('50');
+    expect(data.overview[1].value).toBe('第二');
+    expect(data.overview[2].value).toBe('1');
   });
 
   it('keeps vendor names out of user-visible data labels', async () => {

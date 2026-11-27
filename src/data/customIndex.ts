@@ -133,12 +133,6 @@ export function selectCoreComponents(
     .slice(0, Math.max(0, limit));
 }
 
-function normalizeHistory(history: PriceBar[]) {
-  return [...history]
-    .filter((bar) => Number.isFinite(bar.close) && bar.close > 0 && Boolean(bar.date))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
 function periodKey(date: string, frequency: RebalanceFrequency) {
   const [yearText, monthText] = date.split('-');
   const year = Number(yearText);
@@ -152,8 +146,18 @@ function periodKey(date: string, frequency: RebalanceFrequency) {
 }
 
 function alignedPrices(components: IndexComponent[], histories: PriceHistory) {
-  const normalized = new Map(components.map((component) => [component.code, normalizeHistory(histories[component.code] ?? [])]));
-  const allDates = [...new Set([...normalized.values()].flat().map((bar) => bar.date))].sort();
+  const dates = new Set<string>();
+  const byDate = new Map<string, Map<string, PriceBar>>();
+  for (const { code } of components) {
+    const bars = new Map<string, PriceBar>();
+    for (const bar of histories[code] ?? []) {
+      if (!bar.date || !Number.isFinite(bar.close) || bar.close <= 0 || bars.has(bar.date)) continue;
+      bars.set(bar.date, bar);
+      dates.add(bar.date);
+    }
+    byDate.set(code, bars);
+  }
+  const allDates = [...dates].sort();
   const rows: Array<{ date: string; prices: Record<string, number>; bars: Record<string, PriceBar> }> = [];
   const lastPrices: Record<string, number> = {};
   const lastBars: Record<string, PriceBar> = {};
@@ -161,10 +165,12 @@ function alignedPrices(components: IndexComponent[], histories: PriceHistory) {
   for (const date of allDates) {
     let complete = true;
     for (const component of components) {
-      const bar = normalized.get(component.code)?.find((item) => item.date === date);
+      const bar = byDate.get(component.code)?.get(date);
       if (bar) {
         lastPrices[component.code] = bar.close;
         lastBars[component.code] = bar;
+      } else if (component.code in lastPrices) {
+        lastBars[component.code] = { date, close: lastPrices[component.code] };
       }
       if (!(component.code in lastPrices)) complete = false;
     }
@@ -256,7 +262,15 @@ export function calculateIndexSeries(config: CustomIndexConfig, histories: Price
   return series;
 }
 
-export function calculateIndexMetrics(series: IndexPoint[]): IndexMetrics {
+const periodsPerYear: Record<IndexBarPeriod, number> = {
+  '15m': 252 * 16,
+  '30m': 252 * 8,
+  '60m': 252 * 4,
+  daily: 252,
+  weekly: 52,
+};
+
+export function calculateIndexMetrics(series: IndexPoint[], period: IndexBarPeriod = 'daily'): IndexMetrics {
   if (series.length < 2) {
     return { totalReturn: 0, annualizedReturn: 0, annualizedVolatility: 0, maxDrawdown: 0, maxDrawdownDuration: 0 };
   }
@@ -267,7 +281,7 @@ export function calculateIndexMetrics(series: IndexPoint[]): IndexMetrics {
   const start = series[0].value;
   const end = series.at(-1)?.value ?? start;
   const totalReturn = end / start - 1;
-  const years = Math.max(returns.length / 252, 1 / 252);
+  const years = returns.length / periodsPerYear[period];
   let peak = start;
   let maxDrawdown = 0;
   let currentDuration = 0;
@@ -284,10 +298,24 @@ export function calculateIndexMetrics(series: IndexPoint[]): IndexMetrics {
   return {
     totalReturn,
     annualizedReturn: Math.pow(1 + totalReturn, 1 / years) - 1,
-    annualizedVolatility: Math.sqrt(variance) * Math.sqrt(252),
+    annualizedVolatility: Math.sqrt(variance) * Math.sqrt(periodsPerYear[period]),
     maxDrawdown,
     maxDrawdownDuration,
   };
+}
+
+export function alignBenchmark(series: Pick<IndexPoint, 'date' | 'value'>[], history: PriceBar[]) {
+  const closes = new Map(history.filter((bar) => Number.isFinite(bar.close) && bar.close > 0)
+    .map((bar) => [bar.date, bar.close]));
+  const values = new Map<string, number>();
+  let scale: number | undefined;
+  for (const point of series) {
+    const close = closes.get(point.date);
+    if (close === undefined) continue;
+    scale ??= point.value / close;
+    values.set(point.date, close * scale);
+  }
+  return values;
 }
 
 export function calculateIndustryExposure(components: IndexComponent[], weights: Record<string, number>) {

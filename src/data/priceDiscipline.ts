@@ -417,6 +417,38 @@ export function calculateBollingerBands(
   });
 }
 
+export function buildPriceChartRows<T extends PriceBar>(bars: T[]) {
+  const ma5 = calculateMovingAverageSeries(bars, 5);
+  const ma10 = calculateMovingAverageSeries(bars, 10);
+  const ma20 = calculateMovingAverageSeries(bars, 20);
+  const ma60 = calculateMovingAverageSeries(bars, 60);
+  const bands = calculateBollingerBands(bars);
+  return bars.map((bar, index) => ({
+    ...bar,
+    seriesIndex: index,
+    wickBase: bar.low,
+    wickRange: Math.max(bar.high - bar.low, 0.01),
+    bodyBase: Math.min(bar.open, bar.close),
+    bodyRange: Math.max(Math.abs(bar.close - bar.open), 0.01),
+    ma5: ma5[index],
+    ma10: ma10[index],
+    ma20: ma20[index],
+    ma60: ma60[index],
+    bollMid: bands[index].mid,
+    bollUpper: bands[index].upper,
+    bollLower: bands[index].lower,
+  }));
+}
+
+export function projectChartWindow<T>(rows: T[], windowSize: number | 'all', offset: number, minimumSlots: number) {
+  const visible = calculateVisibleBars(rows, windowSize, offset);
+  const slots = calculatePlotSlotCount(visible.length, minimumSlots);
+  return visible.map((row, index) => ({
+    ...row,
+    plotX: calculateRightAlignedPlotX(index, visible.length, slots),
+  }));
+}
+
 export function dedupeNearbyPriceLevels<T extends { id: string; type: PriceLevelType; price: number }>(
   rows: T[],
   pinnedId?: string | null,

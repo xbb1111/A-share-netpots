@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateMovePercent,
+  buildPriceChartRows,
+  projectChartWindow,
   calculateBollingerBands,
   calculateMovingAverageSeries,
   calculatePlotSlotCount,
@@ -32,6 +34,18 @@ describe('priceDiscipline', () => {
     expect(getSecid('510300')).toBe('1.510300');
     expect(getSecid('159919')).toBe('0.159919');
     expect(getSecid('000300')).toBe('1.000300');
+  });
+
+  it('preserves historical indicators and row indices after zooming and panning', () => {
+    const bars = Array.from({ length: 100 }, (_, index) => ({
+      time: String(index), open: index + 1, high: index + 1, low: index + 1, close: index + 1,
+      volume: 0, amount: 0, amplitude: 0,
+    }));
+    const rows = buildPriceChartRows(bars);
+    const [first] = projectChartWindow(rows, 30, 0, 30);
+    expect(first).toMatchObject({ seriesIndex: 70, plotX: 0, ma60: 41.5, bollMid: 61.5 });
+    expect(projectChartWindow(rows, 30, 5, 30)[5]).toMatchObject({ ...first, plotX: 5 });
+    expect(projectChartWindow(rows, 30, 999, 30)[0]).toMatchObject({ seriesIndex: 0, ma60: null, bollMid: null });
   });
 
   it('extracts codes and optional names from mixed security input', () => {

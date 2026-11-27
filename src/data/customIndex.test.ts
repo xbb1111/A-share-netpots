@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateIndexMetrics,
+  alignBenchmark,
   calculateIndexSeries,
   calculateTargetWeights,
   getWeightInputDisplayValue,
@@ -137,6 +138,39 @@ describe('custom index calculation', () => {
     expect(metrics.totalReturn).toBeCloseTo(0.058);
     expect(metrics.maxDrawdown).toBeCloseTo(0.0238095);
     expect(metrics.annualizedVolatility).toBeGreaterThan(0);
+  });
+
+  it('anchors a benchmark at the first shared timestamp and leaves unmatched bars empty', () => {
+    const times = ['09:45', '10:00', '10:15', '10:30'].map((time) => '2026-06-22 ' + time);
+    const series = times.map((date, index) => ({ date, value: 150 + index * 10 }));
+    const history = [
+      { date: '2026-06-19 15:00', close: 10 },
+      { date: times[3], close: 22 },
+      { date: times[1], close: 20 },
+      { date: times[2], close: 0 },
+    ];
+    expect([...alignBenchmark(series, history)]).toEqual([[times[1], 160], [times[3], 176]]);
+    expect(alignBenchmark(series, []).size).toBe(0);
+  });
+
+  it('scales volatility and compounded returns to the selected bar period', () => {
+    const config: CustomIndexConfig = { components, weightMethod: 'custom', rebalanceFrequency: 'none' };
+    const series = calculateIndexSeries(config, histories);
+    const daily = calculateIndexMetrics(series);
+    for (const [period, bars] of [['15m', 4032], ['30m', 2016], ['60m', 1008], ['weekly', 52]] as const) {
+      const metrics = calculateIndexMetrics(series, period);
+      expect(metrics.annualizedVolatility).toBeCloseTo(daily.annualizedVolatility * Math.sqrt(bars / 252));
+      expect(Math.log1p(metrics.annualizedReturn)).toBeCloseTo(Math.log1p(daily.totalReturn) * bars / (series.length - 1));
+    }
+  });
+
+  it('carries only the previous close into a missing bar', () => {
+    const series = calculateIndexSeries(
+      { components: components.slice(0, 2), weightMethod: 'equal', rebalanceFrequency: 'none' },
+      { AAA: [histories.AAA[0]], BBB: histories.BBB },
+    );
+    expect(series[1].high).toBeCloseTo(101);
+    expect(series[1].low).toBeCloseTo(98.5);
   });
 
   it('reports duplicate components and missing history', () => {
