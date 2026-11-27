@@ -3,41 +3,45 @@ import { SnapshotRefresh } from './snapshot-refresh.mjs';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-it('coalesces requests across panels and keeps a terminal result across reloads', async () => {
+function createClient() {
   const records = new Map();
   const tx = { get: (key) => records.get(key), put: (key, value) => records.set(key, value) };
   const storage = { transaction: (action) => action(tx) };
-  const request = async (method) => (await new SnapshotRefresh({ storage }).fetch(new Request('https://site.test/api/snapshot-refresh', { method }))).json();
-  const runs = [];
-  const lookup = vi.fn(async () => Response.json({ workflow_runs: runs }));
-  vi.stubGlobal('fetch', lookup);
+  return async (method, report) => new SnapshotRefresh({ storage }).fetch(new Request(
+    'https://site.test/api/snapshot-refresh' + (report ? '/report' : ''),
+    { method, body: report ? JSON.stringify(report) : undefined },
+  ));
+}
+
+it('coalesces requests across panels and keeps a terminal result across reloads', async () => {
   vi.useFakeTimers();
-  expect((await request('GET')).status).toBe('idle');
-  const job = await request('POST');
+  const request = createClient();
+  expect((await (await request('GET')).json()).status).toBe('idle');
+  const job = await (await request('POST')).json();
   expect(job.status).toBe('queued');
-  expect((await request('POST')).id).toBe(job.id);
-  expect(lookup).toHaveBeenCalledTimes(1);
-  runs.push({ display_title: 'Website refresh ' + job.id, id: 123, status: 'in_progress' });
-  vi.advanceTimersByTime(100_000);
-  expect((await request('GET')).status).toBe('running');
-  Object.assign(runs[0], { status: 'completed', conclusion: 'success' });
-  vi.advanceTimersByTime(100_000);
-  expect((await request('GET')).status).toBe('completed');
+  expect((await (await request('POST')).json()).id).toBe(job.id);
+  const report = { id: job.id, runId: '123', status: 'running' };
+  expect((await request('POST', report)).status).toBe(204);
+  expect((await (await request('GET')).json()).status).toBe('running');
+  expect((await request('POST', { ...report, runId: '456' })).status).toBe(409);
+  expect((await request('POST', { ...report, status: 'completed' })).status).toBe(204);
+  await request('POST', report);
   vi.advanceTimersByTime(2 * 60 * 60_000);
-  expect((await request('GET')).status).toBe('completed');
-  expect((await request('POST')).id).not.toBe(job.id);
+  expect((await (await request('GET')).json()).status).toBe('completed');
+  expect((await (await request('POST')).json()).id).not.toBe(job.id);
+  expect((await request('POST', report)).status).toBe(409);
 });
 
-it('preserves the request when the run status service is unavailable', async () => {
-  const records = new Map();
-  const storage = { transaction: (action) => action({ get: (key) => records.get(key), put: (key, value) => records.set(key, value) }) };
-  vi.stubGlobal('fetch', async () => new Response(null, { status: 503 }));
+it('expires a request that was never acknowledged', async () => {
   vi.useFakeTimers();
-  const queue = new SnapshotRefresh({ storage });
-  const request = async (method) => (await queue.fetch(new Request('https://site.test', { method }))).json();
-  const job = await request('POST');
-  expect(job.status).toBe('unknown');
-  expect((await request('GET')).id).toBe(job.id);
+  const request = createClient();
+  await request('POST');
   vi.advanceTimersByTime(2 * 60 * 60_000);
-  expect((await request('GET')).status).toBe('expired');
+  expect((await (await request('GET')).json()).status).toBe('expired');
+});
+
+it('rejects anonymous status changes before accessing the queue', async () => {
+  const { default: worker } = await import('./financial-report-worker.mjs');
+  const response = await worker.fetch(new Request('https://site.test/api/snapshot-refresh/report', { method: 'POST' }), {});
+  expect(response.status).toBe(401);
 });

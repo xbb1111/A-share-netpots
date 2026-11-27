@@ -12,6 +12,7 @@ on:
       - server/financial-report-worker.mjs
       - server/snapshot-refresh.mjs
       - scripts/guard-snapshot-dates.mjs
+      - scripts/report-snapshot-refresh.mjs
       - server/sentiment-metrics.mjs
       - server/sentiment-seed.mjs
       - server/large-capital-metrics.mjs
@@ -42,11 +43,20 @@ concurrency:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REFRESH_ID: ${{ inputs.refresh_id }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Report collection started
+        if: inputs.refresh_id
+        continue-on-error: true
+        run: node scripts/report-snapshot-refresh.mjs running
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -121,3 +131,8 @@ jobs:
             server/large-capital-seed.mjs
             server/sentiment-seed.mjs
           key: ${{ steps.snapshots.outputs.cache-primary-key }}
+      - name: Report collection outcome
+        if: always() && inputs.refresh_id
+        env:
+          OUTCOME: ${{ job.status == 'success' && 'completed' || 'failed' }}
+        run: node scripts/report-snapshot-refresh.mjs "$OUTCOME"

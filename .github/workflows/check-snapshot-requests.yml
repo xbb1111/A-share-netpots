@@ -1,5 +1,8 @@
 name: Check website data requests
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/check-snapshot-requests.yml']
   schedule:
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
